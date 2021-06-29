@@ -17,7 +17,6 @@
     "1113017": "service caetgory name [%s] duplicated",
     "1113018": "module and service instance template not coincide",
     "1113019": "process name [%s] unique validation failed",
-    "1113020": "process name [%s] and start parameter [%s] unique validation failed",
     "1113021": "module not bound with template",
     "1113022": "delete processe [%s] created by template forbidden",
     "1113023": "delete [%s] data from multiple models",

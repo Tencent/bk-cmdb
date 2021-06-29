@@ -109,34 +109,6 @@ func (p *processOperation) processNameUniqueValidate(kit *rest.Kit, template *me
 	if count > 0 {
 		return kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, processName)
 	}
-
-	// func name unique
-	funcName := ""
-	if template.Property.FuncName.Value != nil {
-		funcName = *template.Property.FuncName.Value
-	}
-	startRegex := ""
-	if template.Property.StartParamRegex.Value != nil {
-		startRegex = *template.Property.StartParamRegex.Value
-	}
-	funcNameFilter := map[string]interface{}{
-		common.BKServiceTemplateIDField:       template.ServiceTemplateID,
-		"property.bk_func_name.value":         funcName,
-		"property.bk_start_param_regex.value": startRegex,
-	}
-	if template.ID != 0 {
-		funcNameFilter[common.BKFieldID] = map[string]interface{}{
-			common.BKDBNE: template.ID,
-		}
-	}
-	count, err = mongodb.Client().Table(common.BKTableNameProcessTemplate).Find(funcNameFilter).Count(kit.Ctx)
-	if err != nil {
-		blog.Errorf("CreateProcessTemplate failed, check func_name unique failed, err: %+v, rid: %s", err, kit.Rid)
-		return kit.CCError.CCErrorf(common.CCErrCommDBSelectFailed)
-	}
-	if count > 0 {
-		return kit.CCError.CCErrorf(common.CCErrCoreServiceFuncNameDuplicated, funcName, startRegex)
-	}
 	return nil
 }
 

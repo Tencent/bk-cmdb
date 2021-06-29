@@ -478,35 +478,6 @@ var _ = Describe("service template test", func() {
 			Expect(rsp.Result).To(Equal(false), rsp.ToString())
 		})
 
-		It("create process template with same bk_func_name and bk_start_param_regex", func() {
-			input := map[string]interface{}{
-				"service_template_id": serviceTemplateId,
-				common.BKAppIDField:   bizId,
-				"processes": []map[string]interface{}{
-					{
-						"spec": map[string]interface{}{
-							"bk_func_name": map[string]interface{}{
-								"value":            "p1",
-								"as_default_value": true,
-							},
-							"bk_process_name": map[string]interface{}{
-								"value":            "p123",
-								"as_default_value": true,
-							},
-							"bk_start_param_regex": map[string]interface{}{
-								"value":            "123",
-								"as_default_value": false,
-							},
-						},
-					},
-				},
-			}
-			rsp, err := processClient.CreateProcessTemplate(context.Background(), header, input)
-			util.RegisterResponse(rsp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rsp.Result).To(Equal(false), rsp.ToString())
-		})
-
 		It("create process template with empty name", func() {
 			input := map[string]interface{}{
 				"service_template_id": serviceTemplateId,

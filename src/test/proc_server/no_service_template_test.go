@@ -654,26 +654,6 @@ var _ = Describe("no service template test", func() {
 			Expect(rsp.Result).To(Equal(false), rsp.BaseResp.ToString())
 		})
 
-		It("create process instance with same bk_func_name and bk_start_param_regex", func() {
-			input := map[string]interface{}{
-				common.BKAppIDField:   bizId,
-				"service_instance_id": serviceId,
-				"processes": []map[string]interface{}{
-					{
-						"process_info": map[string]interface{}{
-							"bk_func_name":         "p2",
-							"bk_process_name":      "p1234",
-							"bk_start_param_regex": "123",
-						},
-					},
-				},
-			}
-			rsp, err := processClient.CreateProcessInstance(context.Background(), header, input)
-			util.RegisterResponse(rsp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rsp.Result).To(Equal(false), rsp.BaseResp.ToString())
-		})
-
 		It("create process instance with empty name", func() {
 			input := map[string]interface{}{
 				common.BKAppIDField:   bizId,
@@ -758,24 +738,6 @@ var _ = Describe("no service template test", func() {
 					{
 						"bk_process_name": "p1",
 						"bk_process_id":   processId,
-					},
-				},
-			}
-			rsp, err := processClient.UpdateProcessInstance(context.Background(), header, input)
-			util.RegisterResponse(rsp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(rsp.Result).To(Equal(false), rsp.BaseResp.ToString())
-		})
-
-		It("update process instance with same bk_func_name and bk_start_param_regex", func() {
-			input := map[string]interface{}{
-				common.BKAppIDField: bizId,
-				"processes": []map[string]interface{}{
-					{
-						"bk_func_name":         "p1",
-						"bk_process_name":      "p1234",
-						"bk_start_param_regex": "",
-						"bk_process_id":        processId,
 					},
 				},
 			}
@@ -897,10 +859,10 @@ var _ = Describe("no service template test", func() {
 		})
 
 		It("update process instances by their ids", func() {
-			input := map[string]interface{}{
-				common.BKAppIDField: bizId,
-				"process_ids":       []int64{processId},
-				"update_data": map[string]interface{}{
+			input := &metadata.UpdateProcessByIDsInput{
+				BizID:      bizId,
+				ProcessIDs: []int64{processId},
+				UpdateData: map[string]interface{}{
 					common.BKDescriptionField: "aaa",
 				},
 			}

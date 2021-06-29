@@ -119,7 +119,7 @@ func (p *process) ListProcessInstancesDetails(ctx context.Context, h http.Header
 	return
 }
 
-func (p *process) UpdateProcessInstancesByIDs(ctx context.Context, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error) {
+func (p *process) UpdateProcessInstancesByIDs(ctx context.Context, h http.Header, data *metadata.UpdateProcessByIDsInput) (resp *metadata.Response, err error) {
 	resp = new(metadata.Response)
 	subPath := "/update/proc/process_instance/by_ids"
 

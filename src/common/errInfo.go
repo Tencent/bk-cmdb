@@ -774,7 +774,6 @@ const (
 	CCErrCoreServiceServiceCategoryNameDuplicated                             = 1113017
 	CCErrCoreServiceModuleAndServiceInstanceTemplateNotCoincide               = 1113018
 	CCErrCoreServiceProcessNameDuplicated                                     = 1113019
-	CCErrCoreServiceFuncNameDuplicated                                        = 1113020
 	CCErrCoreServiceModuleNotBoundWithTemplate                                = 1113021
 	CCErrCoreServiceShouldNotRemoveProcessCreateByTemplate                    = 1113022
 	// CCErrCoreServiceDeleteMultpleObjectIDRecordErr 删除多个模型中的%s数据

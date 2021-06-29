@@ -616,6 +616,21 @@ func (pbi ProcPropertyBindInfoValue) SetExtraItem(key string, value interface{})
 	return pbi.extra.SetExtraItem(key, value)
 }
 
+func (pbi ProcPropertyBindInfoValue) UpdateBindInfoExtraData(bindInfo ProcBindInfo) {
+	if pbi.extra == nil {
+		return
+	}
+	bindInfo.extra = pbi.extra.ExtractInstanceUpdateData(bindInfo.extra)
+}
+
+func (pbi ProcPropertyBindInfoValue) NeedUpdate() bool {
+	return IsAsDefaultValue(pbi.Std.IP.AsDefaultValue) ||
+		IsAsDefaultValue(pbi.Std.Port.AsDefaultValue) ||
+		IsAsDefaultValue(pbi.Std.Protocol.AsDefaultValue) ||
+		IsAsDefaultValue(pbi.Std.Enable.AsDefaultValue) ||
+		pbi.extra != nil
+}
+
 func (pbi stdProcPropertyBindInfoValue) toKV() map[string]interface{} {
 
 	data := make(map[string]interface{}, 0)

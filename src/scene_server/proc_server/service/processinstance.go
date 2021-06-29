@@ -24,8 +24,8 @@ import (
 	"configcenter/src/common/blog"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/http/rest"
+	"configcenter/src/common/json"
 	"configcenter/src/common/mapstr"
-	"configcenter/src/common/mapstruct"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/util"
 )
@@ -83,7 +83,7 @@ func (ps *ProcServer) createProcessInstances(ctx *rest.Contexts, input *metadata
 		processDatas[idx] = item.ProcessData
 	}
 
-	if err := ps.validateManyRawInstanceUnique(ctx, serviceInstance, processDatas); err != nil {
+	if err := ps.validateManyRawInstanceUnique(ctx.Kit, serviceInstance, processDatas); err != nil {
 		blog.Errorf("create process instance failed, validateManyRawInstanceUnique err:%v, rid: %s", err, ctx.Kit.Rid)
 		return nil, err
 	}
@@ -206,50 +206,53 @@ func (ps *ProcServer) UpdateProcessInstances(ctx *rest.Contexts) {
 	ctx.RespEntity(result)
 }
 
-func (ps *ProcServer) updateProcessInstances(ctx *rest.Contexts, input metadata.UpdateRawProcessInstanceInput) ([]int64, errors.CCErrorCoder) {
-	rid := ctx.Kit.Rid
-	bizID := input.BizID
+func (ps *ProcServer) updateProcessInstances(ctx *rest.Contexts, input metadata.UpdateRawProcessInstanceInput) (
+	[]int64, errors.CCErrorCoder) {
 
+	rid := ctx.Kit.Rid
+
+	// get process ids from the raw process data, and collect those whose update data contains bind info field
 	processIDs := make([]int64, 0)
-	input.Processes = make([]metadata.Process, 0)
+	updateBindInfoMap := make(map[int64]struct{})
 	for _, pData := range input.Raw {
-		process := metadata.Process{}
-		if err := mapstr.DecodeFromMapStr(&process, pData); err != nil {
-			blog.ErrorJSON("update process instance failed, unmarshal request body failed, data: %s, err: %s, rid: %s", pData, err.Error(), rid)
+		processID, err := util.GetInt64ByInterface(pData[common.BKProcIDField])
+		if err != nil {
+			blog.ErrorJSON("update process instance, but parse id failed, data: %s, err: %s, rid: %s", pData, err, rid)
 			return nil, ctx.Kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
 		}
-		input.Processes = append(input.Processes, process)
 
-		if process.ProcessID == 0 {
+		if processID == 0 {
 			blog.Errorf("update process instance failed, process_id invalid, rid: %s", rid)
 			return nil, ctx.Kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcessIDField)
 		}
-		processIDs = append(processIDs, process.ProcessID)
+		processIDs = append(processIDs, processID)
+
+		if pData[common.BKProcBindInfo] != nil {
+			updateBindInfoMap[processID] = struct{}{}
+		}
 	}
+
+	// get process relations to get their template ids and service instance ids
 	processIDs = util.IntArrayUnique(processIDs)
 	option := &metadata.ListProcessInstanceRelationOption{
-		BusinessID: bizID,
+		BusinessID: input.BizID,
 		ProcessIDs: processIDs,
 		Page:       metadata.BasePage{Limit: common.BKNoLimit},
 	}
 	relations, err := ps.CoreAPI.CoreService().Process().ListProcessInstanceRelation(ctx.Kit.Ctx, ctx.Kit.Header, option)
 	if err != nil {
-		blog.ErrorJSON("update process instance failed, search process instance relation failed, option: %s, err: %+v, rid: %s", option, err, rid)
+		blog.ErrorJSON("search process instance relation failed, option: %s, err: %s, rid: %s", option, err, rid)
 		return nil, err
 	}
 
 	// make sure all process valid
-	foundProcessIDs := make([]int64, 0)
-	hostIDs := make([]int64, 0)
+	foundProcessIDs := make(map[int64]struct{}, 0)
 	for _, relation := range relations.Info {
-		foundProcessIDs = append(foundProcessIDs, relation.ProcessID)
-		if relation.ProcessTemplateID != common.ServiceTemplateIDNotSet {
-			hostIDs = append(hostIDs, relation.HostID)
-		}
+		foundProcessIDs[relation.ProcessID] = struct{}{}
 	}
 	invalidProcessIDs := make([]string, 0)
 	for _, processID := range processIDs {
-		if !util.InArray(processID, foundProcessIDs) {
+		if _, exists := foundProcessIDs[processID]; !exists {
 			invalidProcessIDs = append(invalidProcessIDs, strconv.FormatInt(processID, 10))
 		}
 	}
@@ -260,114 +263,203 @@ func (ps *ProcServer) updateProcessInstances(ctx *rest.Contexts, input metadata.
 		return nil, err
 	}
 
-	processTemplateMap := make(map[int64]*metadata.ProcessTemplate)
-	for _, relation := range relations.Info {
+	// get process to relation map and all process template ids and template related process ids
+	process2ServiceInstanceMap := make(map[int64]*metadata.ProcessInstanceRelation)
+	processTemplateIDs := make([]int64, 0)
+	processTemplateProcessIDMap := make(map[int64][]int64)
+	for i, relation := range relations.Info {
+		process2ServiceInstanceMap[relation.ProcessID] = &relations.Info[i]
 		if relation.ProcessTemplateID == common.ServiceTemplateIDNotSet {
 			continue
 		}
-		if _, exist := processTemplateMap[relation.ProcessTemplateID]; exist {
-			continue
+
+		processIDs, exist := processTemplateProcessIDMap[relation.ProcessTemplateID]
+		if !exist {
+			processTemplateIDs = append(processTemplateIDs, relation.ProcessTemplateID)
+			processTemplateProcessIDMap[relation.ProcessTemplateID] = make([]int64, 0)
 		}
-		processTemplate, err := ps.CoreAPI.CoreService().Process().GetProcessTemplate(ctx.Kit.Ctx, ctx.Kit.Header, relation.ProcessTemplateID)
+
+		if _, exist := updateBindInfoMap[relation.ProcessID]; exist {
+			processTemplateProcessIDMap[relation.ProcessTemplateID] = append(processIDs, relation.ProcessID)
+		}
+	}
+
+	// get all process templates and those process ids that need to update bind info fields that are locked
+	processTemplateMap := make(map[int64]*metadata.ProcessTemplate)
+	procIDs := make([]int64, 0)
+	if len(processTemplateIDs) > 0 {
+		procTempOpt := &metadata.ListProcessTemplatesOption{
+			BusinessID:         input.BizID,
+			ProcessTemplateIDs: processTemplateIDs,
+			Page:               metadata.BasePage{Limit: common.BKNoLimit},
+		}
+		procTemps, err := ps.CoreAPI.CoreService().Process().ListProcessTemplates(ctx.Kit.Ctx, ctx.Kit.Header, procTempOpt)
 		if err != nil {
-			blog.ErrorJSON("update process instance failed, get process template failed, processTemplateID: %d, err: %s, rid: %s", relation.ProcessTemplateID, err, rid)
+			blog.ErrorJSON("get process template failed, option: %s, err: %s, rid: %s", procTempOpt, err, rid)
 			return nil, err
 		}
-		processTemplateMap[relation.ProcessTemplateID] = processTemplate
-	}
 
-	process2ServiceInstanceMap := make(map[int64]*metadata.ProcessInstanceRelation)
-	for i := range relations.Info {
-		process2ServiceInstanceMap[relations.Info[i].ProcessID] = &relations.Info[i]
-	}
+		for _, procTemp := range procTemps.Info {
+			processTemplateMap[procTemp.ID] = &procTemp
 
-	hostMap, err := ps.Logic.GetHostIPMapByID(ctx.Kit, hostIDs)
-	if err != nil {
-		return nil, err
-	}
+			// if bind info has locked fields, collect the process ids that need to change bind info value
+			if !metadata.IsAsDefaultValue(procTemp.Property.BindInfo.AsDefaultValue) {
+				continue
+			}
 
-	processDataMap := make(map[int64]map[string]interface{})
-	for idx, process := range input.Processes {
-		// 单独提取需要被重置成 nil 的字段
-		raw := input.Raw[idx]
-		clearFields := make([]string, 0)
-		for key, value := range raw {
-			if value == nil {
-				clearFields = append(clearFields, key)
+			for _, bindInfo := range procTemp.Property.BindInfo.Value {
+				if bindInfo.NeedUpdate() {
+					procIDs = append(procIDs, processTemplateProcessIDMap[procTemp.ID]...)
+					break
+				}
 			}
 		}
-		clearFields = metadata.FilterValidFields(clearFields)
+	}
 
-		relation, exist := process2ServiceInstanceMap[process.ProcessID]
+	// get bind info value for the processes that need to update bind info fields, update based on the previous data
+	procMap := make(map[int64]map[string]interface{})
+	if len(procIDs) > 0 {
+		procCond := &metadata.QueryCondition{
+			Condition: map[string]interface{}{common.BKProcessIDField: map[string]interface{}{common.BKDBIN: procIDs}},
+			Fields:    []string{common.BKProcessIDField, common.BKProcBindInfo},
+		}
+
+		procRes, e := ps.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, ctx.Kit.Header,
+			common.BKInnerObjIDProc, procCond)
+		if e != nil {
+			blog.Errorf("search process by ids(%+v) failed, err: %v, rid: %s", procIDs, err, rid)
+			return nil, ctx.Kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
+		}
+
+		for _, proc := range procRes.Data.Info {
+			processID, err := util.GetInt64ByInterface(proc[common.BKProcessIDField])
+			if err != nil {
+				blog.ErrorJSON("parse process id failed, data: %s, err: %s, rid: %s", proc, err, rid)
+				return nil, ctx.Kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
+			}
+			procMap[processID] = proc
+		}
+	}
+
+	// validate and organize the update process data
+	processDataMap := make(map[int64]map[string]interface{})
+	for _, process := range input.Raw {
+		processID, _ := util.GetInt64ByInterface(process[common.BKProcIDField])
+		relation, exist := process2ServiceInstanceMap[processID]
 		if !exist {
 			err := ctx.Kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcessIDField)
-			blog.ErrorJSON("update process instance failed, process related service instance not found, process: %s, err: %s, rid: %s", process, err, rid)
+			blog.ErrorJSON("process related relation not found, process: %s, err: %s, rid: %s", process, err, rid)
 			return nil, err
 		}
 
-		var processData map[string]interface{}
 		if relation.ProcessTemplateID == common.ServiceTemplateIDNotSet {
+			// process with no template need to validate if the instance is unique
 			serviceInstanceID := relation.ServiceInstanceID
-			process.BusinessID = bizID
-			var err error
-			processData, err = mapstruct.Struct2Map(process)
-			if nil != err {
-				blog.Errorf("UpdateProcessInstances failed, json Unmarshal process failed, processData: %s, err: %+v, rid: %s", processData, err, ctx.Kit.Rid)
-				return nil, ctx.Kit.CCError.CCError(common.CCErrCommJsonDecode)
-			}
-
-			serviceInstance, ccErr := ps.CoreAPI.CoreService().Process().GetServiceInstance(ctx.Kit.Ctx, ctx.Kit.Header, serviceInstanceID)
-			if ccErr != nil {
-				blog.Errorf("UpdateProcessInstances failed, get service instance failed, serviceInstanceID: %d, err: %v, rid: %s", serviceInstanceID, err, rid)
-				return nil, ccErr
-			}
-			if err := ps.validateRawInstanceUnique(ctx, serviceInstance, processData); err != nil {
-				blog.Errorf("update process instance failed, serviceInstanceID: %d, process: %+v, err: %v, rid: %s", serviceInstanceID, process, err, rid)
+			if err := ps.validateRawInstanceUnique(ctx.Kit, input.BizID, serviceInstanceID, process); err != nil {
+				blog.ErrorJSON("update process instance failed, serviceInstanceID: %s, process: %s, err: %s, rid: %s",
+					serviceInstanceID, process, err, rid)
 				return nil, err
 			}
-			delete(processData, common.BKProcessIDField)
-			delete(processData, common.MetadataField)
-			delete(processData, common.LastTimeField)
-			delete(processData, common.CreateTimeField)
+			delete(process, common.BKProcessIDField)
+			delete(process, common.MetadataField)
+			delete(process, common.LastTimeField)
+			delete(process, common.CreateTimeField)
 		} else {
 			processTemplate, exist := processTemplateMap[relation.ProcessTemplateID]
 			if !exist {
 				err := ctx.Kit.CCError.CCError(common.CCErrCommNotFound)
-				blog.Errorf("update process instance failed, process related template not found, relation: %+v, err: %v, rid: %s", relation, err, rid)
+				blog.Errorf("process related template not found, relation: %+v, err: %v, rid: %s", relation, err, rid)
 				return nil, err
 			}
-			var compareErr error
-			processData, compareErr = processTemplate.ExtractInstanceUpdateData(&process, hostMap[relation.HostID])
-			if compareErr != nil {
-				blog.ErrorJSON("extract process(%s) update data failed, err: %s, rid: %s", process, err, rid)
-				return nil, errors.New(common.CCErrCommParamsInvalid, compareErr.Error())
+
+			// for process with template, only update the unlocked fields
+			editableFields := processTemplate.ExtractEditableFields()
+			editableProcessData := make(map[string]interface{})
+			for _, field := range editableFields {
+				if value, exist := process[field]; exist {
+					editableProcessData[field] = value
+				}
 			}
-			clearFields = processTemplate.GetEditableFields(clearFields)
-		}
-		// set field value as nil
-		for _, field := range clearFields {
-			processData[field] = nil
-		}
+			process = editableProcessData
 
-		processInfo := new(metadata.Process)
-		if err := mapstr.DecodeFromMapStr(&processInfo, processData); err != nil {
-			blog.ErrorJSON("parse update process data failed, data: %s, err: %v, rid: %s", processData, err, rid)
-			return nil, ctx.Kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
-		}
+			// update process bind info, only update the editable fields
+			if process[common.BKProcBindInfo] != nil {
+				bindInfoArr, err := ps.parseBindInfo(ctx.Kit, process[common.BKProcBindInfo])
+				if err != nil {
+					return nil, err
+				}
 
-		if err := ps.validateProcessInstance(ctx.Kit, processInfo); err != nil {
-			blog.ErrorJSON("validate update process failed, err: %s, data: %s, rid: %s", err, processInfo, rid)
-			return nil, err
+				procBindInfoMap := make(map[int64]metadata.ProcBindInfo, 0)
+				for _, bindInfo := range bindInfoArr {
+					if bindInfo.Std == nil {
+						continue
+					}
+					procBindInfoMap[bindInfo.Std.TemplateRowID] = bindInfo
+				}
+
+				originBindInfoArr, err := ps.parseBindInfo(ctx.Kit, procMap[processID][common.BKProcBindInfo])
+				if err != nil {
+					return nil, err
+				}
+
+				newBindInfoArr := make([]metadata.ProcBindInfo, 0)
+				templateBindInfoMap := make(map[int64]metadata.ProcPropertyBindInfoValue, 0)
+				for _, row := range processTemplate.Property.BindInfo.Value {
+					templateBindInfoMap[row.Std.RowID] = row
+				}
+
+				for _, bindInfo := range originBindInfoArr {
+					if bindInfo.Std == nil {
+						continue
+					}
+
+					inputProcBindInfo, exists := procBindInfoMap[bindInfo.Std.TemplateRowID]
+					if !exists {
+						newBindInfoArr = append(newBindInfoArr, bindInfo)
+						continue
+					}
+
+					row, exists := templateBindInfoMap[bindInfo.Std.TemplateRowID]
+					if !exist {
+						newBindInfoArr = append(newBindInfoArr, inputProcBindInfo)
+						continue
+					}
+
+					// for process bind info, the locked fields use the previous value
+					if metadata.IsAsDefaultValue(row.Std.IP.AsDefaultValue) {
+						inputProcBindInfo.Std.IP = bindInfo.Std.IP
+					}
+					if metadata.IsAsDefaultValue(row.Std.Port.AsDefaultValue) {
+						inputProcBindInfo.Std.Port = bindInfo.Std.Port
+					}
+					if metadata.IsAsDefaultValue(row.Std.Protocol.AsDefaultValue) {
+						inputProcBindInfo.Std.Protocol = bindInfo.Std.Protocol
+					}
+					if metadata.IsAsDefaultValue(row.Std.Enable.AsDefaultValue) {
+						inputProcBindInfo.Std.Enable = bindInfo.Std.Enable
+					}
+
+					row.UpdateBindInfoExtraData(inputProcBindInfo)
+					newBindInfoArr = append(newBindInfoArr, inputProcBindInfo)
+				}
+
+				process[common.BKProcBindInfo] = newBindInfoArr
+			}
+
+			if err := ps.validateRawProcessInstance(ctx.Kit, process); err != nil {
+				blog.ErrorJSON("validate update process failed, err: %s, data: %s, rid: %s", err, process, rid)
+				return nil, err
+			}
 		}
-		processDataMap[process.ProcessID] = processData
+		processDataMap[processID] = process
 	}
 
 	var wg sync.WaitGroup
 	var firstErr errors.CCErrorCoder
-	pipeline := make(chan bool, 10)
+	pipeline := make(chan struct{}, 50)
 
 	for processID := range processDataMap {
-		pipeline <- true
+		pipeline <- struct{}{}
 		wg.Add(1)
 
 		go func(processID int64, processData map[string]interface{}) {
@@ -378,7 +470,8 @@ func (ps *ProcServer) updateProcessInstances(ctx *rest.Contexts, input metadata.
 
 			err := ps.Logic.UpdateProcessInstance(ctx.Kit, processID, processData)
 			if err != nil {
-				blog.ErrorJSON("UpdateProcessInstance failed, processID: %s, process: %s, err: %s, rid: %s", processID, processData, err, rid)
+				blog.ErrorJSON("update process instance failed, processID: %s, process: %s, err: %s, rid: %s",
+					processID, processData, err, rid)
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -395,6 +488,21 @@ func (ps *ProcServer) updateProcessInstances(ctx *rest.Contexts, input metadata.
 	}
 
 	return processIDs, nil
+}
+
+func (ps *ProcServer) parseBindInfo(kit *rest.Kit, bindInfo interface{}) ([]metadata.ProcBindInfo, errors.CCErrorCoder) {
+	bindInfoJson, err := json.Marshal(bindInfo)
+	if err != nil {
+		blog.ErrorJSON("marshal bind info failed, err: %s, bind info: %s, rid: %s", err, bindInfo, kit.Rid)
+		return nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo)
+	}
+
+	bindInfoArr := make([]metadata.ProcBindInfo, 0)
+	if err := json.Unmarshal(bindInfoJson, &bindInfoArr); err != nil {
+		blog.Errorf("unmarshal bind info failed, err: %v, bind info: %s, rid: %s", err, string(bindInfoJson), kit.Rid)
+		return nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo)
+	}
+	return bindInfoArr, nil
 }
 
 func (ps *ProcServer) CheckHostInBusiness(ctx *rest.Contexts, bizID int64, hostIDs []int64) errors.CCErrorCoder {
@@ -499,8 +607,7 @@ func (ps *ProcServer) getModules(ctx *rest.Contexts, moduleIDs []int64) ([]*meta
 }
 
 var (
-	ipRegex   = `^((1?\d{1,2}|2[0-4]\d|25[0-5])[.]){3}(1?\d{1,2}|2[0-4]\d|25[0-5])$`
-	portRegex = `^([0-9]|[1-9]\d{1,3}|[1-5]\d{4}|6[0-5]{2}[0-3][0-5])$`
+	ipRegex = `^((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})(\.((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})){3}$`
 )
 
 func (ps *ProcServer) validateProcessInstance(kit *rest.Kit, process *metadata.Process) errors.CCErrorCoder {
@@ -524,7 +631,7 @@ func (ps *ProcServer) validateProcessInstance(kit *rest.Kit, process *metadata.P
 		if bindInfo.Std.Port == nil || len(*bindInfo.Std.Port) == 0 {
 			return kit.CCError.CCErrorf(common.CCErrCommParamsNeedSet, common.BKProcBindInfo+"."+common.BKPort)
 		}
-		if matched, err := regexp.MatchString(portRegex, *bindInfo.Std.Port); err != nil || !matched {
+		if matched := metadata.ProcessPortFormat.MatchString(*bindInfo.Std.Port); !matched {
 			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo+"."+common.BKPort)
 		}
 
@@ -539,43 +646,90 @@ func (ps *ProcServer) validateProcessInstance(kit *rest.Kit, process *metadata.P
 	return nil
 }
 
-func (ps *ProcServer) validateRawInstanceUnique(ctx *rest.Contexts, serviceInstance *metadata.ServiceInstance,
-	processData map[string]interface{}) errors.CCErrorCoder {
-
-	rid := ctx.Kit.Rid
-
-	process := metadata.Process{}
-	if err := mapstr.DecodeFromMapStr(&process, processData); err != nil {
-		blog.ErrorJSON("validateRawInstanceUnique failed, Decode2Struct failed, process: %s, err: %s, rid: %s", processData, err.Error(), rid)
-		return ctx.Kit.CCError.CCErrorf(common.CCErrCommJSONUnmarshalFailed)
+func (ps *ProcServer) validateRawProcessInstance(kit *rest.Kit, process map[string]interface{}) errors.CCErrorCoder {
+	processName := process[common.BKProcessNameField]
+	if processName != nil {
+		processNameStr := util.GetStrByInterface(processName)
+		if len(processNameStr) == 0 || len(processNameStr) > common.NameFieldMaxLength {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcessNameField)
+		}
 	}
 
-	if err := ps.validateProcessInstance(ctx.Kit, &process); err != nil {
-		blog.ErrorJSON("validate process instance failed, err: %s, process: %s, rid: %s", err, process, rid)
+	processFuncName := process[common.BKFuncName]
+	if processFuncName != nil {
+		processFuncNameStr := util.GetStrByInterface(processFuncName)
+		if len(processFuncNameStr) == 0 || len(processFuncNameStr) > common.NameFieldMaxLength {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKFuncName)
+		}
+	}
+
+	// validate that process bind info must have ip and port and protocol
+	bindInfoArr, err := ps.parseBindInfo(kit, process[common.BKProcBindInfo])
+	if err != nil {
 		return err
 	}
 
+	for _, bindInfo := range bindInfoArr {
+		if bindInfo.Std.IP == nil || len(*bindInfo.Std.IP) == 0 {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsNeedSet, common.BKProcBindInfo+"."+common.BKIP)
+		}
+		matched, err := regexp.MatchString(ipRegex, *bindInfo.Std.IP)
+		if err != nil || !matched {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo+"."+common.BKIP)
+		}
+
+		if bindInfo.Std.Port == nil || len(*bindInfo.Std.Port) == 0 {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsNeedSet, common.BKProcBindInfo+"."+common.BKPort)
+		}
+		if matched := metadata.ProcessPortFormat.MatchString(*bindInfo.Std.Port); !matched {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo+"."+common.BKPort)
+		}
+
+		if bindInfo.Std.Protocol == nil || len(*bindInfo.Std.Protocol) == 0 {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsNeedSet, common.BKProcBindInfo+"."+common.BKProtocol)
+		}
+		if *bindInfo.Std.Protocol != string(metadata.ProtocolTypeTCP) && *bindInfo.Std.Protocol != string(metadata.ProtocolTypeUDP) {
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcBindInfo+"."+common.BKProtocol)
+		}
+	}
+
+	return nil
+}
+
+func (ps *ProcServer) validateRawInstanceUnique(kit *rest.Kit, bizID int64, serviceInstanceID int64,
+	process map[string]interface{}) errors.CCErrorCoder {
+
+	if err := ps.validateRawProcessInstance(kit, process); err != nil {
+		blog.ErrorJSON("validate process instance failed, err: %s, process: %s, rid: %s", err, process, kit.Rid)
+		return err
+	}
+
+	processName := process[common.BKProcessNameField]
+	if processName == nil {
+		return nil
+	}
+	processName = util.GetStrByInterface(processName)
+
 	// find process under service instance
-	bizID := serviceInstance.BizID
 	relationOption := &metadata.ListProcessInstanceRelationOption{
 		BusinessID:         bizID,
-		ServiceInstanceIDs: []int64{serviceInstance.ID},
+		ServiceInstanceIDs: []int64{serviceInstanceID},
 		ProcessTemplateID:  common.ServiceTemplateIDNotSet,
-		HostID:             serviceInstance.HostID,
 		Page: metadata.BasePage{
 			Limit: common.BKNoLimit,
 		},
 	}
-	relations, err := ps.CoreAPI.CoreService().Process().ListProcessInstanceRelation(ctx.Kit.Ctx, ctx.Kit.Header, relationOption)
+	relations, err := ps.CoreAPI.CoreService().Process().ListProcessInstanceRelation(kit.Ctx, kit.Header, relationOption)
 	if err != nil {
-		blog.Errorf("validateRawInstanceUnique failed, get relation under service instance failed, serviceInstanceID: %d, err: %v, rid: %s", serviceInstance.ID, err, ctx.Kit.Rid)
-		return ctx.Kit.CCError.CCError(common.CCErrCommDBSelectFailed)
+		blog.Errorf("get relation under service instance %d failed, err: %v, rid: %s", serviceInstanceID, err, kit.Rid)
+		return kit.CCError.CCError(common.CCErrCommDBSelectFailed)
 	}
 
 	existProcessIDs := make([]int64, 0)
+	processID, _ := util.GetInt64ByInterface(process[common.BKProcIDField])
 	for _, relation := range relations.Info {
 		// exclude the process itself
-		if relation.ProcessID != process.ProcessID {
+		if relation.ProcessID != processID {
 			existProcessIDs = append(existProcessIDs, relation.ProcessID)
 		}
 	}
@@ -587,96 +741,66 @@ func (ps *ProcServer) validateRawInstanceUnique(ctx *rest.Contexts, serviceInsta
 		common.BKProcessIDField: map[string]interface{}{
 			common.BKDBIN: existProcessIDs,
 		},
+		common.BKProcessNameField: processName,
 	}
 
 	filterCond := &metadata.QueryCondition{
 		Condition: mapstr.MapStr(filter),
-		Fields:    []string{common.BKProcessNameField, common.BKFuncName, common.BKStartParamRegex},
+		Fields:    []string{common.BKProcessIDField},
 	}
 
-	listResult, e := ps.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, ctx.Kit.Header, common.BKProcessObjectName, filterCond)
+	listResult, e := ps.CoreAPI.CoreService().Instance().ReadInstance(kit.Ctx, kit.Header, common.BKProcessObjectName, filterCond)
 	if e != nil {
 		blog.ErrorJSON("validateManyRawInstanceUnique failed, search process with bk_process_name failed, filterCond: %s, err: %s, rid: %s",
-			filterCond, e, ctx.Kit.Rid)
-		return ctx.Kit.CCError.CCError(common.CCErrCommDBSelectFailed)
+			filterCond, e, kit.Rid)
+		return kit.CCError.CCError(common.CCErrCommDBSelectFailed)
 	}
 
-	for _, proc := range listResult.Data.Info {
-		// check process name unique
-		if process.ProcessName != nil {
-			if procName, _ := proc.String(common.BKProcessNameField); procName == *process.ProcessName {
-				blog.ErrorJSON("validateManyRawInstanceUnique failed, bk_process_name duplicated under service instance, serviceInstance: %s, filterCond: %s, err: %s, rid: %s",
-					serviceInstance.ID, filterCond, err, ctx.Kit.Rid)
-				return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, procName)
-			}
-		}
-
-		// check funcName+startParamRegex unique
-		if process.FuncName != nil {
-			funcName, _ := proc.String(common.BKFuncName)
-			startParamRegex, _ := proc.String(common.BKStartParamRegex)
-			originalStartParamRegex := ""
-			if process.StartParamRegex != nil {
-				originalStartParamRegex = *process.StartParamRegex
-			}
-			if funcName == *process.FuncName && startParamRegex == originalStartParamRegex {
-				blog.ErrorJSON("validateManyRawInstanceUnique failed, bk_process_name duplicated under service instance, serviceInstance: %s, filterCond: %s, rid: %s",
-					serviceInstance.ID, filterCond, ctx.Kit.Rid)
-				return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceFuncNameDuplicated, funcName, startParamRegex)
-			}
-		}
+	if len(listResult.Data.Info) > 0 {
+		blog.ErrorJSON("bk_process_name duplicated under service instance, serviceInstance: %s, filterCond: %s, "+
+			"duplicate processes: %s, rid: %s", serviceInstanceID, filterCond, listResult.Data.Info, kit.Rid)
+		return kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, processName)
 	}
 
 	return nil
 }
 
-func (ps *ProcServer) validateManyRawInstanceUnique(ctx *rest.Contexts, serviceInstance *metadata.ServiceInstance,
+func (ps *ProcServer) validateManyRawInstanceUnique(kit *rest.Kit, serviceInstance *metadata.ServiceInstance,
 	processDatas []map[string]interface{}) errors.CCErrorCoder {
 
-	rid := ctx.Kit.Rid
-
 	processNamesMap := make(map[string]bool)
-	processFuncNamesMap := make(map[string]bool)
 	originalProcessIDMap := make(map[int64]bool)
-	// joinStr is used to join processFuncName and startParamRegex as a unique key
-	// to prevent misjudgment, consider the scene: 'aa'+ 'bb' == 'aaa' + 'b', but 'aa' + '*_*' + 'b' != 'aa'+ '*_*' + 'bb'
-	joinStr := "*_*"
 
 	for _, processData := range processDatas {
-		process := new(metadata.Process)
-		if err := mapstr.DecodeFromMapStr(process, processData); err != nil {
-			blog.ErrorJSON("validateManyRawInstanceUnique failed, Decode2Struct failed, process: %s, err: %s, rid: %s", processData, err.Error(), rid)
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCommJSONUnmarshalFailed)
+		if err := ps.validateRawProcessInstance(kit, processData); err != nil {
+			blog.ErrorJSON("valid process(%s) failed, err: %s, rid: %s", processData, err, kit.Rid)
+			return err
 		}
 
-		if process.ProcessName == nil && process.FuncName == nil {
+		processName := processData[common.BKProcessNameField]
+		if processName == nil {
 			continue
 		}
-		if process.ProcessName != nil && (len(*process.ProcessName) == 0 || len(*process.ProcessName) > common.NameFieldMaxLength) {
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcessNameField)
-		}
-		if process.FuncName != nil && (len(*process.FuncName) == 0 || len(*process.FuncName) > common.NameFieldMaxLength) {
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKFuncName)
-		}
+		processNameStr := util.GetStrByInterface(processName)
 
 		// check if original process data contains duplicate name
-		if processNamesMap[*process.ProcessName] == true {
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, *process.ProcessName)
+		if processNamesMap[processNameStr] {
+			return kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, processNameStr)
 		}
-		processNamesMap[*process.ProcessName] = true
+		processNamesMap[processNameStr] = true
 
-		startParamRegex := ""
-		if process.StartParamRegex != nil {
-			startParamRegex = *process.StartParamRegex
+		if processData[common.BKProcessIDField] == nil {
+			continue
 		}
-		funcNameUnique := *process.FuncName + joinStr + startParamRegex
-		if processFuncNamesMap[funcNameUnique] == true {
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceFuncNameDuplicated, *process.FuncName, startParamRegex)
-		}
-		processFuncNamesMap[funcNameUnique] = true
 
-		if process.ProcessID != 0 {
-			originalProcessIDMap[process.ProcessID] = true
+		processID, err := util.GetInt64ByInterface(processData[common.BKProcessIDField])
+		if err != nil {
+			blog.ErrorJSON("parse process id failed, process: %s, err: %s, rid: %s", processData, err, kit.Rid)
+			return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKProcessIDField)
+		}
+
+		if processID != 0 {
+			originalProcessIDMap[processID] = true
 		}
 	}
 
@@ -691,10 +815,11 @@ func (ps *ProcServer) validateManyRawInstanceUnique(ctx *rest.Contexts, serviceI
 			Limit: common.BKNoLimit,
 		},
 	}
-	relations, err := ps.CoreAPI.CoreService().Process().ListProcessInstanceRelation(ctx.Kit.Ctx, ctx.Kit.Header, relationOption)
+	relations, err := ps.CoreAPI.CoreService().Process().ListProcessInstanceRelation(kit.Ctx, kit.Header, relationOption)
 	if err != nil {
-		blog.Errorf("validateManyRawInstanceUnique failed, get relation under service instance failed, serviceInstanceID: %d, err: %v, rid: %s", serviceInstance.ID, err, ctx.Kit.Rid)
-		return ctx.Kit.CCError.CCError(common.CCErrCommDBSelectFailed)
+		blog.Errorf("validate many raw instance unique failed, get relation under service instance failed, "+
+			"serviceInstanceID: %d, err: %v, rid: %s", serviceInstance.ID, err, kit.Rid)
+		return kit.CCError.CCError(common.CCErrCommDBSelectFailed)
 	}
 
 	existProcessIDs := make([]int64, 0)
@@ -716,31 +841,22 @@ func (ps *ProcServer) validateManyRawInstanceUnique(ctx *rest.Contexts, serviceI
 
 	filterCond := &metadata.QueryCondition{
 		Condition: mapstr.MapStr(filter),
-		Fields:    []string{common.BKProcessNameField, common.BKFuncName, common.BKStartParamRegex},
+		Fields:    []string{common.BKProcessNameField},
 	}
 
-	listResult, e := ps.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, ctx.Kit.Header, common.BKProcessObjectName, filterCond)
+	listResult, e := ps.CoreAPI.CoreService().Instance().ReadInstance(kit.Ctx, kit.Header, common.BKProcessObjectName, filterCond)
 	if e != nil {
-		blog.ErrorJSON("validateManyRawInstanceUnique failed, search process with bk_process_name failed, filterCond: %s, err: %s, rid: %s",
-			filterCond, e, ctx.Kit.Rid)
-		return ctx.Kit.CCError.CCError(common.CCErrCommDBSelectFailed)
+		blog.ErrorJSON("validate many raw instance unique failed, search process with bk_process_name failed, "+
+			"filterCond: %s, err: %s, rid: %s", filterCond, e, kit.Rid)
+		return kit.CCError.CCError(common.CCErrCommDBSelectFailed)
 	}
 
 	for _, proc := range listResult.Data.Info {
 		// check process name unique
 		if procName, _ := proc.String(common.BKProcessNameField); processNamesMap[procName] {
-			blog.ErrorJSON("validateManyRawInstanceUnique failed, bk_process_name duplicated under service instance, serviceInstanceID: %s, filterCond: %s, err: %s, rid: %s",
-				serviceInstance.ID, filterCond, err, ctx.Kit.Rid)
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, procName)
-		}
-
-		// check funcName && startParamRegex unique
-		funcName, _ := proc.String(common.BKFuncName)
-		startParamRegex, _ := proc.String(common.BKStartParamRegex)
-		if processFuncNamesMap[funcName+joinStr+startParamRegex] {
-			blog.ErrorJSON("validateManyRawInstanceUnique failed, bk_process_name duplicated under service instance, serviceInstance: %s, filterCond: %s, rid: %s",
-				serviceInstance.ID, filterCond, ctx.Kit.Rid)
-			return ctx.Kit.CCError.CCErrorf(common.CCErrCoreServiceFuncNameDuplicated, funcName, startParamRegex)
+			blog.ErrorJSON("validate many raw instance unique failed, process name duplicated under service instance, "+
+				"serviceInstanceID: %s, filterCond: %s, err: %s, rid: %s", serviceInstance.ID, filterCond, err, kit.Rid)
+			return kit.CCError.CCErrorf(common.CCErrCoreServiceProcessNameDuplicated, procName)
 		}
 	}
 
