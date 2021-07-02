@@ -26,6 +26,8 @@ type IamClientInterface interface {
 		[]metadata.IamCreatorActionPolicy, error)
 	BatchRegisterResourceCreatorAction(ctx context.Context, header http.Header, instance metadata.IamInstancesWithCreator) (
 		[]metadata.IamCreatorActionPolicy, error)
+	BatchOperateInstanceAuth(ctx context.Context, header http.Header, req *metadata.IamBatchOperateInstanceAuthReq) (
+		[]metadata.IamBatchOperateInstanceAuthRes, error)
 }
 
 func NewIamClientInterface(client rest.ClientInterface, config *esbutil.EsbConfigSrv) IamClientInterface {
@@ -65,4 +67,14 @@ type esbIamPermissionURLResp struct {
 type esbIamCreatorActionResp struct {
 	metadata.EsbBaseResponse `json:",inline"`
 	Data                     []metadata.IamCreatorActionPolicy `json:"data"`
+}
+
+type esbIamBatchOperateInstanceAuthParams struct {
+	*esbutil.EsbCommParams                   `json:",inline"`
+	*metadata.IamBatchOperateInstanceAuthReq `json:",inline"`
+}
+
+type esbIamBatchOperateInstanceAuthResp struct {
+	metadata.EsbBaseResponse `json:",inline"`
+	Data                     []metadata.IamBatchOperateInstanceAuthRes `json:"data"`
 }

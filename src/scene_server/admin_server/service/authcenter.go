@@ -26,6 +26,11 @@ import (
 )
 
 func (s *Service) InitAuthCenter(req *restful.Request, resp *restful.Response) {
+	if !auth.EnableAuthorize() {
+		_ = resp.WriteEntity(metadata.NewSuccessResp(nil))
+		return
+	}
+
 	rHeader := req.Request.Header
 	rid := util.GetHTTPCCRequestID(rHeader)
 	defErr := s.CCErr.CreateDefaultCCErrorIf(util.GetLanguage(rHeader))

@@ -191,9 +191,11 @@ func (s *Service) CreatePlatBatch(ctx *rest.Contexts) {
 				}
 			}
 			iamInstancesWithCreator := metadata.IamInstancesWithCreator{
-				Type:      string(iam.SysCloudArea),
-				Instances: iamInstances,
-				Creator:   user,
+				IamInstances: metadata.IamInstances{
+					Type:      string(iam.SysCloudArea),
+					Instances: iamInstances,
+				},
+				Creator: user,
 			}
 			_, err = s.AuthManager.Authorizer.BatchRegisterResourceCreatorAction(ctx.Kit.Ctx, ctx.Kit.Header, iamInstancesWithCreator)
 			if err != nil {
@@ -266,11 +268,13 @@ func (s *Service) CreatePlat(ctx *rest.Contexts) {
 		// register cloud area resource creator action to iam
 		if auth.EnableAuthorize() {
 			iamInstance := metadata.IamInstancesWithCreator{
-				Type: string(iam.SysCloudArea),
-				Instances: []metadata.IamInstance{{
-					ID:   strconv.FormatInt(platID, 10),
-					Name: util.GetStrByInterface(input[common.BKCloudNameField]),
-				}},
+				IamInstances: metadata.IamInstances{
+					Type: string(iam.SysCloudArea),
+					Instances: []metadata.IamInstance{{
+						ID:   strconv.FormatInt(platID, 10),
+						Name: util.GetStrByInterface(input[common.BKCloudNameField]),
+					}},
+				},
 				Creator: user,
 			}
 			_, err = s.AuthManager.Authorizer.BatchRegisterResourceCreatorAction(ctx.Kit.Ctx, ctx.Kit.Header, iamInstance)

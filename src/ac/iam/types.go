@@ -21,6 +21,7 @@ import (
 	"configcenter/src/ac/meta"
 	"configcenter/src/common/auth"
 	cc "configcenter/src/common/backbone/configcenter"
+	"configcenter/src/scene_server/auth_server/sdk/operator"
 )
 
 const (
@@ -521,4 +522,47 @@ type DeleteCMDBResourceParam struct {
 	ActionIDs            []ActionID
 	InstanceSelectionIDs []InstanceSelectionID
 	TypeIDs              []TypeID
+}
+
+type ListPoliciesParams struct {
+	ActionID  ActionID
+	Page      int64
+	PageSize  int64
+	Timestamp int64
+}
+
+type ListPoliciesResp struct {
+	BaseResponse
+	Data *ListPoliciesData `json:"data"`
+}
+
+type ListPoliciesData struct {
+	Metadata PolicyMetadata `json:"metadata"`
+	Count    int64          `json:"count"`
+	Results  []PolicyResult `json:"results"`
+}
+
+type PolicyMetadata struct {
+	System    string       `json:"system"`
+	Action    ActionWithID `json:"action"`
+	Timestamp int64        `json:"timestamp"`
+}
+
+type PolicyResult struct {
+	Version    string           `json:"version"`
+	ID         int64            `json:"id"`
+	Subject    PolicySubject    `json:"subject"`
+	Expression *operator.Policy `json:"expression"`
+	ExpiredAt  int64            `json:"expired_at"`
+}
+
+type PolicySubject struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type SimplifiedInstance struct {
+	InstanceID   int64  `json:"bk_inst_id" bson:"bk_inst_id"`
+	InstanceName string `json:"bk_inst_name" bson:"bk_inst_name"`
 }

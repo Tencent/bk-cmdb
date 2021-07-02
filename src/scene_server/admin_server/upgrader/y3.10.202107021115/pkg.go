@@ -10,26 +10,26 @@
  * limitations under the License.
  */
 
-package y3_10_202106101505
+package y3_10_202107021115
 
 import (
 	"context"
 
-	"configcenter/src/ac"
+	"configcenter/src/ac/iam"
 	"configcenter/src/common/blog"
 	"configcenter/src/scene_server/admin_server/upgrader"
 	"configcenter/src/storage/dal"
 )
 
 func init() {
-	upgrader.RegisterUpgraderWithIAM("y3.10.202106101505", upgrade)
+	upgrader.RegisterUpgraderWithIAM("y3.10.202107021115", upgrade)
 }
 
-func upgrade(ctx context.Context, db dal.RDB, iam ac.AuthInterface, conf *upgrader.Config) (err error) {
-	blog.Info("y3.10.202106101505, migrate iam system instances")
+func upgrade(ctx context.Context, db dal.RDB, iam *iam.IAM, conf *upgrader.Config) (err error) {
+	blog.Info("y3.10.202107021115, migrate iam system instances")
 
 	if err := migrateIAMSysInstances(ctx, db, iam, conf); err != nil {
-		blog.Errorf("[upgrade y3.10.202106101505] migrate iam system instances failed, error:%s", err.Error())
+		blog.Errorf("[upgrade y3.10.202107021115] migrate iam system instances failed, error:%s", err.Error())
 		return err
 	}
 
