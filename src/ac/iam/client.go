@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"configcenter/src/apimachinery/rest"
@@ -103,6 +104,9 @@ type iamClientInterface interface {
 
 	// DeleteActionPolicies delete action policies in IAM
 	DeleteActionPolicies(ctx context.Context, actionID ActionID) error
+
+	// ListPolicies list action policies in IAM
+	ListPolicies(ctx context.Context, params *ListPoliciesParams) (*ListPoliciesData, error)
 }
 
 func (c *iamClient) RegisterSystem(ctx context.Context, sys System) error {
@@ -574,4 +578,39 @@ func (c *iamClient) DeleteActionPolicies(ctx context.Context, actionID ActionID)
 	}
 
 	return nil
+}
+
+func (c *iamClient) ListPolicies(ctx context.Context, params *ListPoliciesParams) (*ListPoliciesData, error) {
+	parsedParams := map[string]string{"action_id": string(params.ActionID)}
+	if params.Page != 0 {
+		parsedParams["page"] = strconv.FormatInt(params.Page, 10)
+	}
+	if params.PageSize != 0 {
+		parsedParams["page_size"] = strconv.FormatInt(params.PageSize, 10)
+	}
+	if params.Timestamp != 0 {
+		parsedParams["timestamp"] = strconv.FormatInt(params.Timestamp, 10)
+	}
+
+	resp := new(ListPoliciesResp)
+	result := c.client.Get().
+		SubResourcef("/api/v1/systems/%s/policies", c.config.SystemID).
+		WithContext(ctx).
+		WithHeaders(c.basicHeader).
+		WithParams(parsedParams).
+		Body(nil).Do()
+
+	err := result.Into(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Code != 0 {
+		return nil, &AuthError{
+			RequestID: result.Header.Get(IamRequestHeader),
+			Reason:    fmt.Errorf("get system info failed, code: %d, msg:%s", resp.Code, resp.Message),
+		}
+	}
+
+	return resp.Data, nil
 }

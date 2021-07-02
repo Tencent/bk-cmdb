@@ -32,6 +32,7 @@ import (
 	svc "configcenter/src/scene_server/admin_server/service"
 	"configcenter/src/storage/dal/mongo/local"
 	"configcenter/src/storage/dal/redis"
+	"configcenter/src/storage/driver/mongodb"
 	"configcenter/src/thirdparty/monitor"
 )
 
@@ -151,10 +152,11 @@ func Run(ctx context.Context, cancel context.CancelFunc, op *options.ServerOptio
 			continue
 		}
 
-		db, err := local.NewMgo(process.Config.MongoDB.GetMongoConf(), time.Minute)
-		if err != nil {
-			return fmt.Errorf("connect mongo server failed %s", err.Error())
+		dbErr := mongodb.InitClient("", &process.Config.MongoDB)
+		if dbErr != nil {
+			return fmt.Errorf("connect mongo server failed %s", dbErr.Error())
 		}
+		db := mongodb.Client()
 		process.Service.SetDB(db)
 
 		watchDB, err := local.NewMgo(process.Config.WatchDB.GetMongoConf(), time.Minute)

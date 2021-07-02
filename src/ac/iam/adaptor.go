@@ -487,8 +487,8 @@ func ParseIamPathToAncestors(iamPath []string) ([]metadata.IamResourceInstance, 
 	return instances, nil
 }
 
-// genIAMDynamicResTypeID 生成IAM侧资源的的dynamic resource typeID
-func genIAMDynamicResTypeID(modelID int64) TypeID {
+// GenIAMDynamicResTypeID 生成IAM侧资源的的dynamic resource typeID
+func GenIAMDynamicResTypeID(modelID int64) TypeID {
 	return TypeID(fmt.Sprintf("%s%d", IAMSysInstTypePrefix, modelID))
 }
 
@@ -500,7 +500,7 @@ func GenCMDBDynamicResType(modelID int64) meta.ResourceType {
 // genDynamicResourceType generate dynamic resourceType
 func genDynamicResourceType(obj metadata.Object) ResourceType {
 	return ResourceType{
-		ID:      genIAMDynamicResTypeID(obj.ID),
+		ID:      GenIAMDynamicResTypeID(obj.ID),
 		Name:    obj.ObjectName,
 		NameEn:  obj.ObjectID,
 		Parents: nil,
@@ -533,7 +533,7 @@ func genDynamicInstanceSelection(obj metadata.Object) InstanceSelection {
 		NameEn: obj.ObjectID,
 		ResourceTypeChain: []ResourceChain{{
 			SystemID: SystemIDCMDB,
-			ID:       genIAMDynamicResTypeID(obj.ID),
+			ID:       GenIAMDynamicResTypeID(obj.ID),
 		}},
 	}
 }
@@ -556,15 +556,15 @@ func genDynamicAction(obj metadata.Object) []DynamicAction {
 	}
 }
 
-// genDynamicActionID generate dynamic ActionID
-func genDynamicActionID(actionType ActionType, modelID int64) ActionID {
+// GenDynamicActionID generate dynamic ActionID
+func GenDynamicActionID(actionType ActionType, modelID int64) ActionID {
 	return ActionID(fmt.Sprintf("%s_%s%d", actionType, IAMSysInstTypePrefix, modelID))
 }
 
 // genDynamicCreateAction generate dynamic create action
 func genDynamicCreateAction(obj metadata.Object) DynamicAction {
 	return DynamicAction{
-		ActionID:     genDynamicActionID(Create, obj.ID),
+		ActionID:     GenDynamicActionID(Create, obj.ID),
 		ActionType:   Create,
 		ActionNameCN: fmt.Sprintf("%s%s%s", obj.ObjectName, "实例", "新建"),
 		ActionNameEN: fmt.Sprintf("%s %s %s", "create", obj.ObjectID, "instance"),
@@ -574,7 +574,7 @@ func genDynamicCreateAction(obj metadata.Object) DynamicAction {
 // genDynamicEditAction generate dynamic edit action
 func genDynamicEditAction(obj metadata.Object) DynamicAction {
 	return DynamicAction{
-		ActionID:     genDynamicActionID(Edit, obj.ID),
+		ActionID:     GenDynamicActionID(Edit, obj.ID),
 		ActionType:   Edit,
 		ActionNameCN: fmt.Sprintf("%s%s%s", obj.ObjectName, "实例", "编辑"),
 		ActionNameEN: fmt.Sprintf("%s %s %s", "edit", obj.ObjectID, "instance"),
@@ -584,7 +584,7 @@ func genDynamicEditAction(obj metadata.Object) DynamicAction {
 // genDynamicDeleteAction generate dynamic delete action
 func genDynamicDeleteAction(obj metadata.Object) DynamicAction {
 	return DynamicAction{
-		ActionID:     genDynamicActionID(Delete, obj.ID),
+		ActionID:     GenDynamicActionID(Delete, obj.ID),
 		ActionType:   Delete,
 		ActionNameCN: fmt.Sprintf("%s%s%s", obj.ObjectName, "实例", "删除"),
 		ActionNameEN: fmt.Sprintf("%s %s %s", "delete", obj.ObjectID, "instance"),
@@ -622,7 +622,7 @@ func genDynamicActions(objects []metadata.Object) []ResourceAction {
 		relatedResource := []RelateResourceType{
 			{
 				SystemID:    SystemIDCMDB,
-				ID:          genIAMDynamicResTypeID(obj.ID),
+				ID:          GenIAMDynamicResTypeID(obj.ID),
 				NameAlias:   "",
 				NameAliasEn: "",
 				Scope:       nil,

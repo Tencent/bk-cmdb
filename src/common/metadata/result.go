@@ -114,11 +114,15 @@ type IamInstanceWithCreator struct {
 	Ancestors []IamInstanceAncestor `json:"ancestors,omitempty"`
 }
 
-type IamInstancesWithCreator struct {
+type IamInstances struct {
 	System    string        `json:"system"`
 	Type      string        `json:"type"`
-	Creator   string        `json:"creator"`
 	Instances []IamInstance `json:"instances"`
+}
+
+type IamInstancesWithCreator struct {
+	IamInstances `json:",inline"`
+	Creator      string `json:"creator"`
 }
 
 type IamInstance struct {
@@ -134,10 +138,39 @@ type IamInstanceAncestor struct {
 }
 
 type IamCreatorActionPolicy struct {
-	Action struct {
-		ID string `json:"id"`
-	} `json:"action"`
-	PolicyID int64 `json:"policy_id"`
+	Action   ActionWithID `json:"action"`
+	PolicyID int64        `json:"policy_id"`
+}
+
+type ActionWithID struct {
+	ID string `json:"id"`
+}
+
+type IamBatchOperateInstanceAuthReq struct {
+	Asynchronous bool             `json:"asynchronous"`
+	Operate      IamAuthOperation `json:"operate"`
+	System       string           `json:"system"`
+	Actions      []ActionWithID   `json:"actions"`
+	Subject      IamSubject       `json:"subject"`
+	Resources    []IamInstances   `json:"resources"`
+	ExpiredAt    int64            `json:"expired_at"`
+}
+
+type IamAuthOperation string
+
+const (
+	IamGrantOperation  = "grant"
+	IamRevokeOperation = "revoke"
+)
+
+type IamSubject struct {
+	Type string `json:"type"`
+	Id   string `json:"id"`
+}
+
+type IamBatchOperateInstanceAuthRes struct {
+	Action   ActionWithID `json:"action"`
+	PolicyID int64        `json:"policy_id"`
 }
 
 // Permission  describes all the authorities that a user

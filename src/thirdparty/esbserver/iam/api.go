@@ -101,3 +101,31 @@ func (i *iam) BatchRegisterResourceCreatorAction(ctx context.Context, header htt
 
 	return resp.Data, nil
 }
+
+// BatchOperateInstanceAuth batch grant or revoke iam resource instances' authorization
+func (i *iam) BatchOperateInstanceAuth(ctx context.Context, header http.Header, req *metadata.IamBatchOperateInstanceAuthReq) (
+	[]metadata.IamBatchOperateInstanceAuthRes, error) {
+
+	resp := new(esbIamBatchOperateInstanceAuthResp)
+	url := "/v2/iam/authorization/batch_instance/"
+	params := &esbIamBatchOperateInstanceAuthParams{
+		EsbCommParams:                  esbutil.GetEsbRequestParams(i.config.GetConfig(), header),
+		IamBatchOperateInstanceAuthReq: req,
+	}
+
+	err := i.client.Post().
+		SubResourcef(url).
+		WithContext(ctx).
+		WithHeaders(header).
+		Body(params).
+		Do().
+		Into(&resp)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Result || resp.Code != 0 {
+		return nil, fmt.Errorf("code: %d, message: %s", resp.Code, resp.Message)
+	}
+
+	return resp.Data, nil
+}
