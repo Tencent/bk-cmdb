@@ -13,9 +13,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +25,7 @@ import (
 
 	"github.com/fortytw2/leaktest"
 
-	"github.com/olivere/elastic/config"
+	"github.com/olivere/elastic/v7/config"
 )
 
 func findConn(s string, slice ...*conn) (int, bool) {
@@ -65,9 +67,6 @@ func TestClientDefaults(t *testing.T) {
 	}
 	if client.snifferInterval != DefaultSnifferInterval {
 		t.Errorf("expected sniffer interval = %v, got: %v", DefaultSnifferInterval, client.snifferInterval)
-	}
-	if client.basicAuth != false {
-		t.Errorf("expected no basic auth; got: %v", client.basicAuth)
 	}
 	if client.basicAuthUsername != "" {
 		t.Errorf("expected no basic auth username; got: %q", client.basicAuthUsername)
@@ -132,13 +131,23 @@ func TestClientWithMultipleURLs(t *testing.T) {
 	}
 }
 
+func TestClientWithInvalidURLs(t *testing.T) {
+	client, err := NewClient(SetURL(" http://foo.com", "http://[fe80::%31%25en0]:8080/"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if want, have := `first path segment in URL cannot contain colon`, err.Error(); !strings.Contains(have, want) {
+		t.Fatalf("expected error to contain %q, have %q", want, have)
+	}
+	if client != nil {
+		t.Fatal("expected client == nil")
+	}
+}
+
 func TestClientWithBasicAuth(t *testing.T) {
 	client, err := NewClient(SetBasicAuth("user", "secret"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if client.basicAuth != true {
-		t.Errorf("expected basic auth; got: %v", client.basicAuth)
 	}
 	if got, want := client.basicAuthUsername, "user"; got != want {
 		t.Errorf("expected basic auth username %q; got: %q", want, got)
@@ -153,14 +162,42 @@ func TestClientWithBasicAuthInUserInfo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.basicAuth != true {
-		t.Errorf("expected basic auth; got: %v", client.basicAuth)
-	}
 	if got, want := client.basicAuthUsername, "user1"; got != want {
 		t.Errorf("expected basic auth username %q; got: %q", want, got)
 	}
 	if got, want := client.basicAuthPassword, "secret1"; got != want {
 		t.Errorf("expected basic auth password %q; got: %q", want, got)
+	}
+}
+
+func TestClientWithBasicAuthDuringHealthcheck(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "HEAD" || r.URL.String() != "/" {
+			t.Fatalf("expected HEAD / request, got %s %s", r.Method, r.URL)
+			http.Error(w, fmt.Sprintf("expected HEAD / request, got %s %s", r.Method, r.URL), http.StatusBadRequest)
+			return
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			t.Fatal("expected HEAD basic auth")
+			http.Error(w, "expected HTTP basic auth", http.StatusBadRequest)
+			return
+		}
+		if username != "user" && password != "secret" {
+			t.Fatalf("invalid HTTP basic auth username %q and password %q", username, password)
+			http.Error(w, fmt.Sprintf("invalid HTTP basic auth username %q and password %q", username, password), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client, err := NewClient(SetBasicAuth("user", "secret"), SetURL(ts.URL), SetSniff(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client == nil {
+		t.Fatal("expected a client")
 	}
 }
 
@@ -170,14 +207,50 @@ func TestClientWithXpackSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.basicAuth != true {
-		t.Errorf("expected basic auth; got: %v", client.basicAuth)
-	}
 	if got, want := client.basicAuthUsername, "elastic"; got != want {
 		t.Errorf("expected basic auth username %q; got: %q", want, got)
 	}
 	if got, want := client.basicAuthPassword, "elastic"; got != want {
 		t.Errorf("expected basic auth password %q; got: %q", want, got)
+	}
+}
+
+func TestClientWithXpackSecurityUnauthorized(t *testing.T) {
+	client, err := NewClient(SetURL("http://no-such-user:invalid-password@127.0.0.1:9210"))
+	if client != nil {
+		t.Fatal("expected no client")
+	}
+	if !IsUnauthorized(err) {
+		t.Fatalf("expected IsUnauthorized to be true; got err=%+v", err)
+	}
+	if !IsStatusCode(err, http.StatusUnauthorized) {
+		t.Fatalf("expected IsUnauthorized to be true; got err=%+v", err)
+	}
+}
+
+func TestClientWithoutBasicAuthButAuthEnabledInElasticDuringHealthcheck(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "HEAD" || r.URL.String() != "/" {
+			t.Fatalf("expected HEAD / request, got %s %s", r.Method, r.URL)
+			http.Error(w, fmt.Sprintf("expected HEAD / request, got %s %s", r.Method, r.URL), http.StatusBadRequest)
+			return
+		}
+		_, _, ok := r.BasicAuth()
+		if ok {
+			t.Fatal("unexpected HEAD basic auth")
+			http.Error(w, "unexpected HTTP basic auth", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	_, err := NewClient(SetURL(ts.URL), SetSniff(false))
+	if err == nil {
+		t.Fatal("expected unauthorized error")
+	}
+	if !IsUnauthorized(err) {
+		t.Fatalf("expected IsUnauthorized = %v, got err=%+v", true, err)
 	}
 }
 
@@ -431,7 +504,7 @@ func TestClientHealthcheckTimeoutLeak(t *testing.T) {
 	cli := &Client{
 		c: &http.Client{},
 		conns: []*conn{
-			&conn{
+			{
 				url: "http://" + addr + "/",
 			},
 		},
@@ -467,6 +540,101 @@ func TestClientHealthcheckTimeoutLeak(t *testing.T) {
 	reqDoneMu.Unlock()
 }
 
+func TestClientSniffUpdatingNodeURL(t *testing.T) {
+	var (
+		nodeID  = "3DWDurZJQvWyWIOFnEB7VA"
+		nodeURL string
+		n       int
+	)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/_nodes/http" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		u, err := url.Parse(nodeURL)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintf(w, `{
+			"cluster_name": "elasticsearch",
+			"nodes": {
+				%q: {
+					"name": "elasticsearch",
+					"http": {
+						"publish_address": %q
+					}
+				}
+			}
+		}`, nodeID, u.Host)
+		fmt.Fprintln(w)
+	})
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	nodeURL = ts.URL
+
+	client, err := NewSimpleClient(SetURL(ts.URL), SetSniff(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want, have := 0, n; want != have {
+		t.Fatalf("expected %d calls to handler; got %d", want, have)
+	}
+	if want, have := 1, len(client.conns); want != have {
+		t.Fatalf("expected %d connections; got %d", want, have)
+	}
+	if want, have := nodeURL, client.conns[0].URL(); want != have {
+		t.Fatalf("expected URL=%q; got %q", want, have)
+	}
+
+	err = client.sniff(context.Background(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, have := 1, n; want != have {
+		t.Fatalf("expected %d calls to handler; got %d", want, have)
+	}
+	if want, have := 1, len(client.conns); want != have {
+		t.Fatalf("expected %d connections; got %d", want, have)
+	}
+	if want, have := nodeID, client.conns[0].NodeID(); want != have {
+		t.Fatalf("expected NodeID=%q; got %q", want, have)
+	}
+	if want, have := nodeURL, client.conns[0].URL(); want != have {
+		t.Fatalf("expected URL=%q; got %q", want, have)
+	}
+	oldNodeID := client.conns[0].NodeID()
+	oldURL := client.conns[0].URL()
+
+	nodeURL = "http://127.0.0.1:9999" // some other nodeURL to report
+
+	err = client.sniff(context.Background(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, have := 2, n; want != have {
+		t.Fatalf("expected %d calls to handler; got %d", want, have)
+	}
+	if want, have := 1, len(client.conns); want != have {
+		t.Fatalf("expected %d connections; got %d", want, have)
+	}
+	newNodeID := client.conns[0].NodeID()
+	newURL := client.conns[0].URL()
+
+	// NodeID mustn't change
+	if newNodeID != oldNodeID {
+		t.Fatalf("expected NodeID=%q; got %q", oldNodeID, newNodeID)
+	}
+	// URL must have change
+	if newURL == oldURL {
+		t.Fatalf("expected to update URL=%q to %q", oldURL, newURL)
+	}
+}
+
 // -- NewSimpleClient --
 
 func TestSimpleClientDefaults(t *testing.T) {
@@ -497,9 +665,6 @@ func TestSimpleClientDefaults(t *testing.T) {
 	}
 	if client.snifferInterval != off {
 		t.Errorf("expected sniffer interval = %v, got: %v", off, client.snifferInterval)
-	}
-	if client.basicAuth != false {
-		t.Errorf("expected no basic auth; got: %v", client.basicAuth)
 	}
 	if client.basicAuthUsername != "" {
 		t.Errorf("expected no basic auth username; got: %q", client.basicAuthUsername)
@@ -695,7 +860,7 @@ func TestClientSniffTimeoutLeak(t *testing.T) {
 	cli := &Client{
 		c: &http.Client{},
 		conns: []*conn{
-			&conn{
+			{
 				url: "http://" + addr + "/",
 			},
 		},
@@ -740,18 +905,8 @@ func TestClientExtractHostname(t *testing.T) {
 	}{
 		{
 			Scheme:  "http",
-			Address: "",
-			Output:  "",
-		},
-		{
-			Scheme:  "https",
-			Address: "abc",
-			Output:  "",
-		},
-		{
-			Scheme:  "http",
-			Address: "127.0.0.1:19200",
-			Output:  "http://127.0.0.1:19200",
+			Address: "127.0.0.1:9200",
+			Output:  "http://127.0.0.1:9200",
 		},
 		{
 			Scheme:  "https",
@@ -760,8 +915,13 @@ func TestClientExtractHostname(t *testing.T) {
 		},
 		{
 			Scheme:  "http",
+			Address: "127.0.0.1:19200",
+			Output:  "http://127.0.0.1:19200",
+		},
+		{
+			Scheme:  "http",
 			Address: "myelk.local/10.1.0.24:9200",
-			Output:  "http://10.1.0.24:9200",
+			Output:  "http://myelk.local:9200",
 		},
 	}
 
@@ -1002,6 +1162,38 @@ func TestPerformRequest(t *testing.T) {
 	}
 }
 
+func TestPerformRequestWithStream(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response to be != nil")
+	}
+	if res.BodyReader == nil {
+		t.Fatal("expected res.BodyReader to be != nil")
+	}
+	if res.Body != nil {
+		t.Fatal("expected res.Body to be == nil")
+	}
+
+	ret := new(PingResult)
+	if err := json.NewDecoder(res.BodyReader).Decode(ret); err != nil {
+		t.Fatalf("expected no error on decode; got: %v", err)
+	}
+	if ret.ClusterName == "" {
+		t.Errorf("expected cluster name; got: %q", ret.ClusterName)
+	}
+}
+
 func TestPerformRequestWithSimpleClient(t *testing.T) {
 	client, err := NewSimpleClient()
 	if err != nil {
@@ -1190,13 +1382,49 @@ func TestPerformRequestWithMaxResponseSize(t *testing.T) {
 		t.Fatal("expected response to be != nil")
 	}
 
-	res, err = client.PerformRequest(context.TODO(), PerformRequestOptions{
+	_, err = client.PerformRequest(context.TODO(), PerformRequestOptions{
 		Method:          "GET",
 		Path:            "/",
 		MaxResponseSize: 100,
 	})
 	if err != ErrResponseSize {
 		t.Fatal("expected response size error")
+	}
+}
+
+func TestPerformRequestOnNoConnectionsWithHealthcheckRevival(t *testing.T) {
+	fail := func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("request failed")
+	}
+	tr := &failingTransport{path: "/fail", fail: fail}
+	httpClient := &http.Client{Transport: tr}
+	client, err := NewClient(SetHttpClient(httpClient), SetMaxRetries(0), SetHealthcheck(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run against a failing endpoint to mark connection as dead
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/fail",
+	})
+	if err == nil {
+		t.Fatal(err)
+	}
+	if res != nil {
+		t.Fatal("expected no response")
+	}
+
+	// Forced healthcheck should bring connection back to life and complete request
+	res, err = client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response to be != nil")
 	}
 }
 
@@ -1222,7 +1450,6 @@ func TestPerformRequestRetryOnHttpError(t *testing.T) {
 	var numFailedReqs int
 	fail := func(r *http.Request) (*http.Response, error) {
 		numFailedReqs += 1
-		//return &http.Response{Request: r, StatusCode: 400}, nil
 		return nil, errors.New("request failed")
 	}
 
@@ -1255,8 +1482,8 @@ func TestPerformRequestRetryOnHttpError(t *testing.T) {
 func TestPerformRequestNoRetryOnValidButUnsuccessfulHttpStatus(t *testing.T) {
 	var numFailedReqs int
 	fail := func(r *http.Request) (*http.Response, error) {
-		numFailedReqs += 1
-		return &http.Response{Request: r, StatusCode: 500}, nil
+		numFailedReqs++
+		return &http.Response{Request: r, StatusCode: 500, Body: http.NoBody}, nil
 	}
 
 	// Run against a failing endpoint and see if PerformRequest
@@ -1284,6 +1511,47 @@ func TestPerformRequestNoRetryOnValidButUnsuccessfulHttpStatus(t *testing.T) {
 	}
 	// Retry should not have triggered additional requests because
 	if numFailedReqs != 1 {
+		t.Errorf("expected %d failed requests; got: %d", 1, numFailedReqs)
+	}
+}
+
+func TestPerformRequestOnSpecifiedHttpStatusCodes(t *testing.T) {
+	var numFailedReqs int
+	fail := func(r *http.Request) (*http.Response, error) {
+		numFailedReqs++
+		return &http.Response{Request: r, StatusCode: 429, Body: http.NoBody}, nil
+	}
+
+	// Run against a failing endpoint and see if PerformRequest
+	// retries correctly.
+	tr := &failingTransport{path: "/fail", fail: fail}
+	httpClient := &http.Client{Transport: tr}
+
+	client, err := NewClient(
+		SetHttpClient(httpClient),
+		SetMaxRetries(5),
+		SetRetryStatusCodes(429, 504),
+		SetHealthcheck(false),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/fail",
+	})
+	if err == nil {
+		t.Fatalf("expected error: err=%v, resp=%+v", err, res)
+	}
+	if res == nil {
+		t.Fatal("expected response, got nil")
+	}
+	if want, got := 429, res.StatusCode; want != got {
+		t.Fatalf("expected status code = %d, got %d", want, got)
+	}
+	// Retry should not have triggered additional requests because
+	if numFailedReqs != 5 {
 		t.Errorf("expected %d failed requests; got: %d", 1, numFailedReqs)
 	}
 }
@@ -1339,6 +1607,7 @@ func TestPerformRequestWithCancel(t *testing.T) {
 		err error
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	resc := make(chan result, 1)
 	go func() {
@@ -1397,7 +1666,7 @@ func TestPerformRequestWithTimeout(t *testing.T) {
 	}
 }
 
-func TestPerformRequestWithCustomHeader(t *testing.T) {
+func TestPerformRequestWithCustomHTTPHeadersOnRequest(t *testing.T) {
 	client, err := NewClient()
 	if err != nil {
 		t.Fatal(err)
@@ -1420,6 +1689,120 @@ func TestPerformRequestWithCustomHeader(t *testing.T) {
 	}
 	if want, have := "123456", res.Header.Get("X-Opaque-Id"); want != have {
 		t.Fatalf("want response header X-Opaque-Id=%q, have %q", want, have)
+	}
+}
+
+func TestPerformRequestWithCustomHTTPHeadersOnClient(t *testing.T) {
+	client, err := NewClient(SetHeaders(http.Header{
+		"Custom-Id": []string{"olivere"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/_tasks",
+		Params: url.Values{
+			"pretty": []string{"true"},
+		},
+		Headers: http.Header{
+			"X-Opaque-Id": []string{"123456"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response to be != nil")
+	}
+	// Request-level headers have preference
+	if want, have := "123456", res.Header.Get("X-Opaque-Id"); want != have {
+		t.Fatalf("want X-Opaque-Id=%q, have %q", want, have)
+	}
+}
+
+func TestPerformRequestSetsDefaultUserAgent(t *testing.T) {
+	var req *http.Request
+	h := func(r *http.Request) (*http.Response, error) {
+		req = new(http.Request)
+		*req = *r
+		return &http.Response{Request: r, StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	}
+	tr := &failingTransport{path: "/", fail: h}
+	httpClient := &http.Client{Transport: tr}
+
+	client, err := NewClient(SetHttpClient(httpClient), SetSniff(false), SetHealthcheck(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/",
+		Params: url.Values{
+			"pretty": []string{"true"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response to be != nil")
+	}
+	// Have a default for User-Agent
+	if want, have := "elastic/"+Version+" ("+runtime.GOOS+"-"+runtime.GOARCH+")", req.Header.Get("User-Agent"); want != have {
+		t.Fatalf("want User-Agent=%q, have %q", want, have)
+	}
+}
+
+func TestPerformRequestWithCustomHTTPHeadersPriority(t *testing.T) {
+	var req *http.Request
+	h := func(r *http.Request) (*http.Response, error) {
+		req = new(http.Request)
+		*req = *r
+		return &http.Response{Request: r, StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	}
+	tr := &failingTransport{path: "/", fail: h}
+	httpClient := &http.Client{Transport: tr}
+
+	client, err := NewClient(SetHttpClient(httpClient), SetHeaders(http.Header{
+		"Custom-Id":   []string{"olivere"},
+		"User-Agent":  []string{"My user agent"},
+		"X-Opaque-Id": []string{"sandra"}, // <- will be overridden by request-level header
+	}), SetSniff(false), SetHealthcheck(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.PerformRequest(context.TODO(), PerformRequestOptions{
+		Method: "GET",
+		Path:   "/",
+		Params: url.Values{
+			"pretty": []string{"true"},
+		},
+		Headers: http.Header{
+			"X-Opaque-Id": []string{"123456"}, // <- request-level has preference
+			"X-Somewhat":  []string{"somewhat"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response to be != nil")
+	}
+	if req == nil {
+		t.Fatal("expected to record HTTP request")
+	}
+	if want, have := "123456", req.Header.Get("X-Opaque-Id"); want != have {
+		t.Fatalf("want X-Opaque-Id=%q, have %q", want, have)
+	}
+	if want, have := "olivere", req.Header.Get("Custom-Id"); want != have {
+		t.Fatalf("want Custom-Id=%q, have %q", want, have)
+	}
+	if want, have := "My user agent", req.Header.Get("User-Agent"); want != have {
+		t.Fatalf("want User-Agent=%q, have %q", want, have)
+	}
+	if want, have := "somewhat", req.Header.Get("X-Somewhat"); want != have {
+		t.Fatalf("want X-Somewhat=%q, have %q", want, have)
 	}
 }
 

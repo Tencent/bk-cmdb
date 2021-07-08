@@ -18,22 +18,22 @@ func TestMultiGet(t *testing.T) {
 	tweet3 := tweet{User: "sandrae", Message: "Cycling is fun."}
 
 	// Add some documents
-	_, err := client.Index().Index(testIndexName).Type("doc").Id("1").BodyJson(&tweet1).Do(context.TODO())
+	_, err := client.Index().Index(testIndexName).Id("1").BodyJson(&tweet1).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("2").BodyJson(&tweet2).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("2").BodyJson(&tweet2).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("3").BodyJson(&tweet3).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("3").BodyJson(&tweet3).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Flush().Index(testIndexName).Do(context.TODO())
+	_, err = client.Refresh().Index(testIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestMultiGet(t *testing.T) {
 
 	// Get documents 1 and 3
 	res, err := client.MultiGet().
-		Add(NewMultiGetItem().Index(testIndexName).Type("doc").Id("1")).
-		Add(NewMultiGetItem().Index(testIndexName).Type("doc").Id("3")).
+		Add(NewMultiGetItem().Index(testIndexName).Id("1")).
+		Add(NewMultiGetItem().Index(testIndexName).Id("3")).
 		Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestMultiGet(t *testing.T) {
 		t.Errorf("expected Source != nil; got %v", item.Source)
 	}
 	var doc tweet
-	if err := json.Unmarshal(*item.Source, &doc); err != nil {
+	if err := json.Unmarshal(item.Source, &doc); err != nil {
 		t.Fatalf("expected to unmarshal item Source; got %v", err)
 	}
 	if doc.Message != tweet1.Message {
@@ -87,7 +87,7 @@ func TestMultiGet(t *testing.T) {
 	if item.Source == nil {
 		t.Errorf("expected Source != nil; got %v", item.Source)
 	}
-	if err := json.Unmarshal(*item.Source, &doc); err != nil {
+	if err := json.Unmarshal(item.Source, &doc); err != nil {
 		t.Fatalf("expected to unmarshal item Source; got %v", err)
 	}
 	if doc.Message != tweet3.Message {

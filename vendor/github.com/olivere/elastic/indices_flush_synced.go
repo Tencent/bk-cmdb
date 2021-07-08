@@ -8,20 +8,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // IndicesSyncedFlushService performs a normal flush, then adds a generated
 // unique marked (sync_id) to all shards.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/indices-synced-flush.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/indices-synced-flush.html
 // for details.
 type IndicesSyncedFlushService struct {
-	client            *Client
-	pretty            bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	index             []string
 	ignoreUnavailable *bool
 	allowNoIndices    *bool
@@ -33,6 +40,46 @@ func NewIndicesSyncedFlushService(client *Client) *IndicesSyncedFlushService {
 	return &IndicesSyncedFlushService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *IndicesSyncedFlushService) Pretty(pretty bool) *IndicesSyncedFlushService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *IndicesSyncedFlushService) Human(human bool) *IndicesSyncedFlushService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *IndicesSyncedFlushService) ErrorTrace(errorTrace bool) *IndicesSyncedFlushService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *IndicesSyncedFlushService) FilterPath(filterPath ...string) *IndicesSyncedFlushService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *IndicesSyncedFlushService) Header(name string, value string) *IndicesSyncedFlushService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *IndicesSyncedFlushService) Headers(headers http.Header) *IndicesSyncedFlushService {
+	s.headers = headers
+	return s
 }
 
 // Index is a list of index names; use `_all` or empty string for all indices.
@@ -63,12 +110,6 @@ func (s *IndicesSyncedFlushService) ExpandWildcards(expandWildcards string) *Ind
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *IndicesSyncedFlushService) Pretty(pretty bool) *IndicesSyncedFlushService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *IndicesSyncedFlushService) buildURL() (string, url.Values, error) {
 	// Build URL
@@ -88,8 +129,17 @@ func (s *IndicesSyncedFlushService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.ignoreUnavailable != nil {
 		params.Set("ignore_unavailable", fmt.Sprintf("%v", *s.ignoreUnavailable))
@@ -109,6 +159,9 @@ func (s *IndicesSyncedFlushService) Validate() error {
 }
 
 // Do executes the service.
+//
+// Deprecated: Synced flush is deprecated and will be removed in 8.0.
+// Use flush at _/flush or /{index}/_flush instead.
 func (s *IndicesSyncedFlushService) Do(ctx context.Context) (*IndicesSyncedFlushResponse, error) {
 	// Check pre-conditions
 	if err := s.Validate(); err != nil {
@@ -123,9 +176,10 @@ func (s *IndicesSyncedFlushService) Do(ctx context.Context) (*IndicesSyncedFlush
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "POST",
-		Path:   path,
-		Params: params,
+		Method:  "POST",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

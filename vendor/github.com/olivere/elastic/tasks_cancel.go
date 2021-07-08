@@ -7,20 +7,27 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // TasksCancelService can cancel long-running tasks.
 // It is supported as of Elasticsearch 2.3.0.
 //
-// See http://www.elastic.co/guide/en/elasticsearch/reference/5.2/tasks-cancel.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/tasks.html#task-cancellation
 // for details.
 type TasksCancelService struct {
-	client       *Client
-	pretty       bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	taskId       string
 	actions      []string
 	nodeId       []string
@@ -34,6 +41,46 @@ func NewTasksCancelService(client *Client) *TasksCancelService {
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *TasksCancelService) Pretty(pretty bool) *TasksCancelService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *TasksCancelService) Human(human bool) *TasksCancelService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *TasksCancelService) ErrorTrace(errorTrace bool) *TasksCancelService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *TasksCancelService) FilterPath(filterPath ...string) *TasksCancelService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *TasksCancelService) Header(name string, value string) *TasksCancelService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *TasksCancelService) Headers(headers http.Header) *TasksCancelService {
+	s.headers = headers
+	return s
+}
+
 // TaskId specifies the task to cancel. Notice that the caller is responsible
 // for using the correct format, i.e. node_id:task_number, as specified in
 // the REST API.
@@ -44,7 +91,6 @@ func (s *TasksCancelService) TaskId(taskId string) *TasksCancelService {
 
 // TaskIdFromNodeAndId specifies the task to cancel. Set id to -1 for all tasks.
 func (s *TasksCancelService) TaskIdFromNodeAndId(nodeId string, id int64) *TasksCancelService {
-	// See https://github.com/elastic/elasticsearch/blob/6.7/server/src/main/java/org/elasticsearch/tasks/TaskId.java#L107-L118
 	if id != -1 {
 		s.taskId = fmt.Sprintf("%s:%d", nodeId, id)
 	}
@@ -75,16 +121,9 @@ func (s *TasksCancelService) ParentTaskId(parentTaskId string) *TasksCancelServi
 
 // ParentTaskIdFromNodeAndId specifies to cancel tasks with specified parent task id.
 func (s *TasksCancelService) ParentTaskIdFromNodeAndId(nodeId string, id int64) *TasksCancelService {
-	// See https://github.com/elastic/elasticsearch/blob/6.7/server/src/main/java/org/elasticsearch/tasks/TaskId.java#L107-L118
 	if id != -1 {
 		s.parentTaskId = fmt.Sprintf("%s:%d", nodeId, id)
 	}
-	return s
-}
-
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *TasksCancelService) Pretty(pretty bool) *TasksCancelService {
-	s.pretty = pretty
 	return s
 }
 
@@ -106,14 +145,23 @@ func (s *TasksCancelService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if len(s.actions) > 0 {
 		params.Set("actions", strings.Join(s.actions, ","))
 	}
 	if len(s.nodeId) > 0 {
-		params.Set("node_id", strings.Join(s.nodeId, ","))
+		params.Set("nodes", strings.Join(s.nodeId, ","))
 	}
 	if s.parentTaskId != "" {
 		params.Set("parent_task_id", s.parentTaskId)
@@ -141,9 +189,10 @@ func (s *TasksCancelService) Do(ctx context.Context) (*TasksListResponse, error)
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "POST",
-		Path:   path,
-		Params: params,
+		Method:  "POST",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

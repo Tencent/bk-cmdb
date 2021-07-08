@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-// BulkIndexRequest is a request to add a document to Elasticsearch.
+// BulkIndexRequest is a request to add or replace a document to Elasticsearch.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-bulk.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-bulk.html
 // for details.
 type BulkIndexRequest struct {
 	BulkableRequest
@@ -29,6 +29,8 @@ type BulkIndexRequest struct {
 	doc             interface{}
 	pipeline        string
 	retryOnConflict *int
+	ifSeqNo         *int64
+	ifPrimaryTerm   *int64
 
 	source []string
 
@@ -50,6 +52,8 @@ type bulkIndexRequestCommandOp struct {
 	Version         *int64 `json:"version,omitempty"`
 	VersionType     string `json:"version_type,omitempty"`
 	Pipeline        string `json:"pipeline,omitempty"`
+	IfSeqNo         *int64 `json:"if_seq_no,omitempty"`
+	IfPrimaryTerm   *int64 `json:"if_primary_term,omitempty"`
 }
 
 // NewBulkIndexRequest returns a new BulkIndexRequest.
@@ -95,7 +99,7 @@ func (r *BulkIndexRequest) Id(id string) *BulkIndexRequest {
 
 // OpType specifies if this request should follow create-only or upsert
 // behavior. This follows the OpType of the standard document index API.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-index_.html#operation-type
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-index_.html#operation-type
 // for details.
 func (r *BulkIndexRequest) OpType(opType string) *BulkIndexRequest {
 	r.opType = opType
@@ -129,7 +133,7 @@ func (r *BulkIndexRequest) Version(version int64) *BulkIndexRequest {
 // VersionType specifies how versions are created. It can be e.g. internal,
 // external, external_gte, or force.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-index_.html#index-versioning
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-index_.html#index-versioning
 // for details.
 func (r *BulkIndexRequest) VersionType(versionType string) *BulkIndexRequest {
 	r.versionType = versionType
@@ -158,6 +162,20 @@ func (r *BulkIndexRequest) Pipeline(pipeline string) *BulkIndexRequest {
 	return r
 }
 
+// IfSeqNo indicates to only perform the index operation if the last
+// operation that has changed the document has the specified sequence number.
+func (r *BulkIndexRequest) IfSeqNo(ifSeqNo int64) *BulkIndexRequest {
+	r.ifSeqNo = &ifSeqNo
+	return r
+}
+
+// IfPrimaryTerm indicates to only perform the index operation if the
+// last operation that has changed the document has the specified primary term.
+func (r *BulkIndexRequest) IfPrimaryTerm(ifPrimaryTerm int64) *BulkIndexRequest {
+	r.ifPrimaryTerm = &ifPrimaryTerm
+	return r
+}
+
 // String returns the on-wire representation of the index request,
 // concatenated as a single string.
 func (r *BulkIndexRequest) String() string {
@@ -170,7 +188,7 @@ func (r *BulkIndexRequest) String() string {
 
 // Source returns the on-wire representation of the index request,
 // split into an action-and-meta-data line and an (optional) source line.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-bulk.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-bulk.html
 // for details.
 func (r *BulkIndexRequest) Source() ([]string, error) {
 	// { "index" : { "_index" : "test", "_type" : "type1", "_id" : "1" } }
@@ -193,6 +211,8 @@ func (r *BulkIndexRequest) Source() ([]string, error) {
 		VersionType:     r.versionType,
 		RetryOnConflict: r.retryOnConflict,
 		Pipeline:        r.pipeline,
+		IfSeqNo:         r.ifSeqNo,
+		IfPrimaryTerm:   r.ifPrimaryTerm,
 	}
 	command := bulkIndexRequestCommand{
 		r.opType: indexCommand,

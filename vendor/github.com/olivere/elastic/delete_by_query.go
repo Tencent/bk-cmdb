@@ -11,13 +11,20 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // DeleteByQueryService deletes documents that match a query.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-delete-by-query.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-delete-by-query.html.
 type DeleteByQueryService struct {
-	client                 *Client
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	index                  []string
 	typ                    []string
 	query                  Query
@@ -63,7 +70,6 @@ type DeleteByQueryService struct {
 	version                *bool
 	waitForActiveShards    string
 	waitForCompletion      *bool
-	pretty                 bool
 }
 
 // NewDeleteByQueryService creates a new DeleteByQueryService.
@@ -76,6 +82,46 @@ func NewDeleteByQueryService(client *Client) *DeleteByQueryService {
 	return builder
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *DeleteByQueryService) Pretty(pretty bool) *DeleteByQueryService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *DeleteByQueryService) Human(human bool) *DeleteByQueryService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *DeleteByQueryService) ErrorTrace(errorTrace bool) *DeleteByQueryService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *DeleteByQueryService) FilterPath(filterPath ...string) *DeleteByQueryService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *DeleteByQueryService) Header(name string, value string) *DeleteByQueryService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *DeleteByQueryService) Headers(headers http.Header) *DeleteByQueryService {
+	s.headers = headers
+	return s
+}
+
 // Index sets the indices on which to perform the delete operation.
 func (s *DeleteByQueryService) Index(index ...string) *DeleteByQueryService {
 	s.index = append(s.index, index...)
@@ -83,6 +129,9 @@ func (s *DeleteByQueryService) Index(index ...string) *DeleteByQueryService {
 }
 
 // Type limits the delete operation to the given types.
+//
+// Deprecated: Types are in the process of being removed. Instead of
+// using a type, prefer to filter on a field of the document.
 func (s *DeleteByQueryService) Type(typ ...string) *DeleteByQueryService {
 	s.typ = append(s.typ, typ...)
 	return s
@@ -243,7 +292,7 @@ func (s *DeleteByQueryService) Query(query Query) *DeleteByQueryService {
 
 // Refresh indicates whether the effected indexes should be refreshed.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-refresh.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-refresh.html
 // for details.
 func (s *DeleteByQueryService) Refresh(refresh string) *DeleteByQueryService {
 	s.refresh = refresh
@@ -306,7 +355,7 @@ func (s *DeleteByQueryService) Size(size int) *DeleteByQueryService {
 // Slices represents the number of slices (default: 1).
 // It used to  be a number, but can be set to "auto" as of 6.7.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-delete-by-query.html#docs-delete-by-query-automatic-slice
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-delete-by-query.html#docs-delete-by-query-automatic-slice
 // for details.
 func (s *DeleteByQueryService) Slices(slices interface{}) *DeleteByQueryService {
 	s.slices = slices
@@ -414,12 +463,6 @@ func (s *DeleteByQueryService) WaitForCompletion(waitForCompletion bool) *Delete
 	return s
 }
 
-// Pretty indents the JSON output from Elasticsearch.
-func (s *DeleteByQueryService) Pretty(pretty bool) *DeleteByQueryService {
-	s.pretty = pretty
-	return s
-}
-
 // Body specifies the body of the request. It overrides data being specified via SearchService.
 func (s *DeleteByQueryService) Body(body string) *DeleteByQueryService {
 	s.body = body
@@ -447,14 +490,26 @@ func (s *DeleteByQueryService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
 	if len(s.xSource) > 0 {
 		params.Set("_source", strings.Join(s.xSource, ","))
 	}
 	if len(s.xSourceExclude) > 0 {
-		params.Set("_source_exclude", strings.Join(s.xSourceExclude, ","))
+		params.Set("_source_excludes", strings.Join(s.xSourceExclude, ","))
 	}
 	if len(s.xSourceInclude) > 0 {
-		params.Set("_source_include", strings.Join(s.xSourceInclude, ","))
+		params.Set("_source_includes", strings.Join(s.xSourceInclude, ","))
 	}
 	if s.analyzer != "" {
 		params.Set("analyzer", s.analyzer)
@@ -570,9 +625,6 @@ func (s *DeleteByQueryService) buildURL() (string, url.Values, error) {
 	if s.requestsPerSecond != nil {
 		params.Set("requests_per_second", fmt.Sprintf("%v", *s.requestsPerSecond))
 	}
-	if s.pretty {
-		params.Set("pretty", fmt.Sprintf("%v", s.pretty))
-	}
 	return path, params, nil
 }
 
@@ -617,10 +669,11 @@ func (s *DeleteByQueryService) Do(ctx context.Context) (*BulkIndexByScrollRespon
 
 	// Get response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "POST",
-		Path:   path,
-		Params: params,
-		Body:   body,
+		Method:  "POST",
+		Path:    path,
+		Params:  params,
+		Body:    body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

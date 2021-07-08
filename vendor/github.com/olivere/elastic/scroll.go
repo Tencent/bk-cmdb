@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 const (
@@ -23,23 +23,29 @@ const (
 
 // ScrollService iterates over pages of search results from Elasticsearch.
 type ScrollService struct {
-	client            *Client
-	retrier           Retrier
-	indices           []string
-	types             []string
-	keepAlive         string
-	body              interface{}
-	ss                *SearchSource
-	size              *int
-	pretty            bool
-	routing           string
-	preference        string
-	ignoreUnavailable *bool
-	allowNoIndices    *bool
-	expandWildcards   string
-	headers           http.Header
-	maxResponseSize   int64
-	filterPath        []string
+	client  *Client
+	retrier Retrier
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
+	indices            []string
+	types              []string
+	keepAlive          string
+	body               interface{}
+	ss                 *SearchSource
+	size               *int
+	routing            string
+	preference         string
+	ignoreUnavailable  *bool
+	ignoreThrottled    *bool
+	allowNoIndices     *bool
+	expandWildcards    string
+	maxResponseSize    int64
+	restTotalHitsAsInt *bool
 
 	mu       sync.RWMutex
 	scrollId string
@@ -55,12 +61,43 @@ func NewScrollService(client *Client) *ScrollService {
 	return builder
 }
 
-// Header sets headers on the request
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *ScrollService) Pretty(pretty bool) *ScrollService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *ScrollService) Human(human bool) *ScrollService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *ScrollService) ErrorTrace(errorTrace bool) *ScrollService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *ScrollService) FilterPath(filterPath ...string) *ScrollService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
 func (s *ScrollService) Header(name string, value string) *ScrollService {
 	if s.headers == nil {
 		s.headers = http.Header{}
 	}
 	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *ScrollService) Headers(headers http.Header) *ScrollService {
+	s.headers = headers
 	return s
 }
 
@@ -81,6 +118,9 @@ func (s *ScrollService) Index(indices ...string) *ScrollService {
 }
 
 // Type sets the name of one or more types to iterate over.
+//
+// Deprecated: Types are in the process of being removed. Instead of using a type, prefer to
+// filter on a field on the document.
 func (s *ScrollService) Type(types ...string) *ScrollService {
 	if s.types == nil {
 		s.types = make([]string, 0)
@@ -107,6 +147,12 @@ func (s *ScrollService) KeepAlive(keepAlive string) *ScrollService {
 // from each shard, per page.
 func (s *ScrollService) Size(size int) *ScrollService {
 	s.size = &size
+	return s
+}
+
+// Highlight allows to highlight search results on one or more fields
+func (s *ScrollService) Highlight(highlight *Highlight) *ScrollService {
+	s.ss = s.ss.Highlight(highlight)
 	return s
 }
 
@@ -138,7 +184,7 @@ func (s *ScrollService) Query(query Query) *ScrollService {
 
 // PostFilter is executed as the last filter. It only affects the
 // search hits but not facets. See
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-post-filter.html
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-post-filter.html
 // for details.
 func (s *ScrollService) PostFilter(postFilter Query) *ScrollService {
 	s.ss = s.ss.PostFilter(postFilter)
@@ -147,7 +193,7 @@ func (s *ScrollService) PostFilter(postFilter Query) *ScrollService {
 
 // Slice allows slicing the scroll request into several batches.
 // This is supported in Elasticsearch 5.0 or later.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-scroll.html#sliced-scroll
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-scroll.html#sliced-scroll
 // for details.
 func (s *ScrollService) Slice(sliceQuery Query) *ScrollService {
 	s.ss = s.ss.Slice(sliceQuery)
@@ -168,7 +214,7 @@ func (s *ScrollService) FetchSourceContext(fetchSourceContext *FetchSourceContex
 }
 
 // Version can be set to true to return a version for each search hit.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-version.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-version.html.
 func (s *ScrollService) Version(version bool) *ScrollService {
 	s.ss = s.ss.Version(version)
 	return s
@@ -195,9 +241,19 @@ func (s *ScrollService) SortBy(sorter ...Sorter) *ScrollService {
 	return s
 }
 
-// Pretty asks Elasticsearch to pretty-print the returned JSON.
-func (s *ScrollService) Pretty(pretty bool) *ScrollService {
-	s.pretty = pretty
+// TrackTotalHits controls if the total hit count for the query should be tracked.
+//
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.1/search-request-track-total-hits.html
+// for details.
+func (s *ScrollService) TrackTotalHits(trackTotalHits interface{}) *ScrollService {
+	s.ss = s.ss.TrackTotalHits(trackTotalHits)
+	return s
+}
+
+// RestTotalHitsAsInt indicates whether hits.total should be rendered as an
+// integer or an object in the rest search response.
+func (s *ScrollService) RestTotalHitsAsInt(enabled bool) *ScrollService {
+	s.restTotalHitsAsInt = &enabled
 	return s
 }
 
@@ -225,6 +281,13 @@ func (s *ScrollService) IgnoreUnavailable(ignoreUnavailable bool) *ScrollService
 	return s
 }
 
+// IgnoreThrottled indicates whether specified concrete, expanded or aliased
+// indices should be ignored when throttled.
+func (s *ScrollService) IgnoreThrottled(ignoreThrottled bool) *ScrollService {
+	s.ignoreThrottled = &ignoreThrottled
+	return s
+}
+
 // AllowNoIndices indicates whether to ignore if a wildcard indices
 // expression resolves into no concrete indices. (This includes `_all` string
 // or when no indices have been specified).
@@ -247,11 +310,25 @@ func (s *ScrollService) MaxResponseSize(maxResponseSize int64) *ScrollService {
 	return s
 }
 
-// FilterPath allows reducing the response, a mechanism known as
-// response filtering and described here:
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/common-options.html#common-options-response-filtering.
-func (s *ScrollService) FilterPath(filterPath ...string) *ScrollService {
-	s.filterPath = append(s.filterPath, filterPath...)
+// NoStoredFields indicates that no stored fields should be loaded, resulting in only
+// id and type to be returned per field.
+func (s *ScrollService) NoStoredFields() *ScrollService {
+	s.ss = s.ss.NoStoredFields()
+	return s
+}
+
+// StoredField adds a single field to load and return (note, must be stored) as
+// part of the search request. If none are specified, the source of the
+// document will be returned.
+func (s *ScrollService) StoredField(fieldName string) *ScrollService {
+	s.ss = s.ss.StoredField(fieldName)
+	return s
+}
+
+// StoredFields	sets the fields to load and return as part of the search request.
+// If none are specified, the source of the document will be returned.
+func (s *ScrollService) StoredFields(fields ...string) *ScrollService {
+	s.ss = s.ss.StoredFields(fields...)
 	return s
 }
 
@@ -288,6 +365,18 @@ func (s *ScrollService) Clear(ctx context.Context) error {
 
 	path := "/_search/scroll"
 	params := url.Values{}
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
 	body := struct {
 		ScrollId []string `json:"scroll_id,omitempty"`
 	}{
@@ -379,8 +468,28 @@ func (s *ScrollService) buildFirstURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		// Always add "hits._scroll_id", otherwise we cannot scroll
+		var found bool
+		for _, path := range s.filterPath {
+			if path == "_scroll_id" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.filterPath = append(s.filterPath, "_scroll_id")
+		}
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.size != nil && *s.size > 0 {
 		params.Set("size", fmt.Sprintf("%d", *s.size))
@@ -403,10 +512,11 @@ func (s *ScrollService) buildFirstURL() (string, url.Values, error) {
 	if s.ignoreUnavailable != nil {
 		params.Set("ignore_unavailable", fmt.Sprintf("%v", *s.ignoreUnavailable))
 	}
-	if len(s.filterPath) > 0 {
-		// Always add "hits._scroll_id", otherwise we cannot scroll
-		s.filterPath = append(s.filterPath, "_scroll_id")
-		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	if s.ignoreThrottled != nil {
+		params.Set("ignore_throttled", fmt.Sprintf("%v", *s.ignoreThrottled))
+	}
+	if v := s.restTotalHitsAsInt; v != nil {
+		params.Set("rest_total_hits_as_int", fmt.Sprint(*v))
 	}
 
 	return path, params, nil
@@ -485,8 +595,31 @@ func (s *ScrollService) buildNextURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		// Always add "hits._scroll_id", otherwise we cannot scroll
+		var found bool
+		for _, path := range s.filterPath {
+			if path == "_scroll_id" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.filterPath = append(s.filterPath, "_scroll_id")
+		}
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
+	if v := s.restTotalHitsAsInt; v != nil {
+		params.Set("rest_total_hits_as_int", fmt.Sprint(*v))
 	}
 
 	return path, params, nil
@@ -504,4 +637,32 @@ func (s *ScrollService) bodyNext() (interface{}, error) {
 	}
 	s.mu.RUnlock()
 	return body, nil
+}
+
+// DocvalueField adds a single field to load from the field data cache
+// and return as part of the search.
+func (s *ScrollService) DocvalueField(docvalueField string) *ScrollService {
+	s.ss = s.ss.DocvalueField(docvalueField)
+	return s
+}
+
+// DocvalueFieldWithFormat adds a single field to load from the field data cache
+// and return as part of the search.
+func (s *ScrollService) DocvalueFieldWithFormat(docvalueField DocvalueField) *ScrollService {
+	s.ss = s.ss.DocvalueFieldWithFormat(docvalueField)
+	return s
+}
+
+// DocvalueFields adds one or more fields to load from the field data cache
+// and return as part of the search.
+func (s *ScrollService) DocvalueFields(docvalueFields ...string) *ScrollService {
+	s.ss = s.ss.DocvalueFields(docvalueFields...)
+	return s
+}
+
+// DocvalueFieldsWithFormat adds one or more fields to load from the field data cache
+// and return as part of the search.
+func (s *ScrollService) DocvalueFieldsWithFormat(docvalueFields ...DocvalueField) *ScrollService {
+	s.ss = s.ss.DocvalueFieldsWithFormat(docvalueFields...)
+	return s
 }

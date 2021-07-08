@@ -5,51 +5,85 @@
 package elastic
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 const (
-	testIndexName  = "elastic-test"
-	testIndexName2 = "elastic-test2"
-	testIndexName3 = "elastic-test3"
-	testIndexName4 = "elastic-test4"
-	testMapping    = `
+	testIndexName      = "elastic-test"
+	testIndexName2     = "elastic-test2"
+	testIndexName3     = "elastic-test3"
+	testIndexName4     = "elastic-test4"
+	testIndexName5     = "elastic-test5"
+	testIndexNameEmpty = "elastic-test-empty"
+	testMapping        = `
 {
 	"settings":{
 		"number_of_shards":1,
 		"number_of_replicas":0
 	},
 	"mappings":{
-		"doc":{
-			"properties":{
-				"user":{
-					"type":"keyword"
-				},
-				"message":{
-					"type":"text",
-					"store": true,
-					"fielddata": true
-				},
-				"tags":{
-					"type":"keyword"
-				},
-				"location":{
-					"type":"geo_point"
-				},
-				"suggest_field":{
-					"type":"completion",
-					"contexts":[
-						{
-							"name":"user_name",
-							"type":"category"
-						}
-					]
-				}
+		"properties":{
+			"user":{
+				"type":"keyword"
+			},
+			"message":{
+				"type":"text",
+				"store": true,
+				"fielddata": true
+			},
+			"tags":{
+				"type":"keyword"
+			},
+			"location":{
+				"type":"geo_point"
+			},
+			"suggest_field":{
+				"type":"completion"
+			}
+		}
+	}
+}
+`
+	testMappingWithContext = `
+{
+	"settings":{
+		"number_of_shards":1,
+		"number_of_replicas":0
+	},
+	"mappings":{
+		"properties":{
+			"user":{
+				"type":"keyword"
+			},
+			"message":{
+				"type":"text",
+				"store": true,
+				"fielddata": true
+			},
+			"tags":{
+				"type":"keyword"
+			},
+			"location":{
+				"type":"geo_point"
+			},
+			"suggest_field":{
+				"type":"completion",
+				"contexts":[
+					{
+						"name":"user_name",
+						"type":"category"
+					}
+				]
 			}
 		}
 	}
@@ -64,34 +98,32 @@ const (
 		"number_of_replicas":0
 	},
 	"mappings":{
-		"doc":{
-			"_source": {
-				"enabled": false
+		"_source": {
+			"enabled": false
+		},
+		"properties":{
+			"user":{
+				"type":"keyword"
 			},
-			"properties":{
-				"user":{
-					"type":"keyword"
-				},
-				"message":{
-					"type":"text",
-					"store": true,
-					"fielddata": true
-				},
-				"tags":{
-					"type":"keyword"
-				},
-				"location":{
-					"type":"geo_point"
-				},
-				"suggest_field":{
-					"type":"completion",
-					"contexts":[
-						{
-							"name":"user_name",
-							"type":"category"
-						}
-					]
-				}
+			"message":{
+				"type":"text",
+				"store": true,
+				"fielddata": true
+			},
+			"tags":{
+				"type":"keyword"
+			},
+			"location":{
+				"type":"geo_point"
+			},
+			"suggest_field":{
+				"type":"completion",
+				"contexts":[
+					{
+						"name":"user_name",
+						"type":"category"
+					}
+				]
 			}
 		}
 	}
@@ -106,16 +138,14 @@ const (
 			"number_of_replicas":0
 		},
 		"mappings":{
-			"doc":{
-				"properties":{
-					"message":{
-						"type":"text"
-					},
-					"my_join_field": {
-						"type": "join",
-						"relations": {
-							"question": "answer"
-						}
+			"properties":{
+				"message":{
+					"type":"text"
+				},
+				"my_join_field": {
+					"type": "join",
+					"relations": {
+						"question": "answer"
 					}
 				}
 			}
@@ -126,12 +156,11 @@ const (
 	testOrderIndex   = "elastic-orders"
 	testOrderMapping = `
 {
-"settings":{
-	"number_of_shards":1,
-	"number_of_replicas":0
-},
-"mappings":{
-	"doc":{
+	"settings":{
+		"number_of_shards":1,
+		"number_of_replicas":0
+	},
+	"mappings":{
 		"properties":{
 			"article":{
 				"type":"text"
@@ -144,35 +173,32 @@ const (
 			},
 			"time":{
 				"type":"date",
-				"format": "YYYY-MM-dd"
+				"format": "yyyy-MM-dd"
 			}
 		}
 	}
 }
-}
 `
 
 	/*
-	   	testDoctypeIndex   = "elastic-doctypes"
-	   	testDoctypeMapping = `
-	   {
-	   	"settings":{
-	   		"number_of_shards":1,
-	   		"number_of_replicas":0
-	   	},
-	   	"mappings":{
-	   		"doc":{
-	   			"properties":{
-	   				"message":{
-	   					"type":"text",
-	   					"store": true,
-	   					"fielddata": true
-	   				}
-	   			}
-	   		}
-	   	}
-	   }
-	   `
+		   	testDoctypeIndex   = "elastic-doctypes"
+		   	testDoctypeMapping = `
+		   {
+		   	"settings":{
+		   		"number_of_shards":1,
+		   		"number_of_replicas":0
+		   	},
+		   	"mappings":{
+				"properties":{
+					"message":{
+						"type":"text",
+						"store": true,
+						"fielddata": true
+					}
+				}
+		   	}
+		   }
+		   `
 	*/
 
 	testQueryIndex   = "elastic-queries"
@@ -183,16 +209,14 @@ const (
 		"number_of_replicas":0
 	},
 	"mappings":{
-		"doc":{
-			"properties":{
-				"message":{
-					"type":"text",
-					"store": true,
-					"fielddata": true
-				},
-				"query": {
-					"type":	"percolator"
-				}
+		"properties":{
+			"message":{
+				"type":"text",
+				"store": true,
+				"fielddata": true
+			},
+			"query": {
+				"type":	"percolator"
 			}
 		}
 	}
@@ -213,16 +237,6 @@ type tweet struct {
 
 func (t tweet) String() string {
 	return fmt.Sprintf("tweet{User:%q,Message:%q,Retweets:%d}", t.User, t.Message, t.Retweets)
-}
-
-type comment struct {
-	User    string    `json:"user"`
-	Comment string    `json:"comment"`
-	Created time.Time `json:"created,omitempty"`
-}
-
-func (c comment) String() string {
-	return fmt.Sprintf("comment{User:%q,Comment:%q}", c.User, c.Comment)
 }
 
 type joinDoc struct {
@@ -251,11 +265,6 @@ type doctype struct {
 	Message string `json:"message"`
 }
 
-// queries is required for Percolate tests.
-type queries struct {
-	Query string `json:"query"`
-}
-
 func isTravis() bool {
 	return os.Getenv("TRAVIS") != ""
 }
@@ -263,6 +272,8 @@ func isTravis() bool {
 func travisGoVersion() string {
 	return os.Getenv("TRAVIS_GO_VERSION")
 }
+
+var _ = travisGoVersion // remove unused warning in staticcheck
 
 type logger interface {
 	Error(args ...interface{})
@@ -275,6 +286,23 @@ type logger interface {
 	Logf(format string, args ...interface{})
 }
 
+func boolPtr(b bool) *bool { return &b }
+
+// strictDecoder returns an error if any JSON fields aren't decoded.
+type strictDecoder struct{}
+
+func (d *strictDecoder) Decode(data []byte, v interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}
+
+var (
+	logDeprecations = flag.String("deprecations", "off", "log or fail on deprecation warnings")
+	logTypesRemoval = flag.Bool("types-removal", false, "log deprecation warnings regarding types removal")
+	strict          = flag.Bool("strict-decoder", false, "treat missing unknown fields in response as errors")
+)
+
 func setupTestClient(t logger, options ...ClientOptionFunc) (client *Client) {
 	var err error
 
@@ -283,10 +311,38 @@ func setupTestClient(t logger, options ...ClientOptionFunc) (client *Client) {
 		t.Fatal(err)
 	}
 
+	// Use strict JSON decoder (unless a specific decoder has been specified already)
+	if *strict {
+		if client.decoder == nil {
+			client.decoder = &strictDecoder{}
+		} else if _, ok := client.decoder.(*DefaultDecoder); ok {
+			client.decoder = &strictDecoder{}
+		}
+	}
+
+	// Log deprecations during tests
+	if loglevel := *logDeprecations; loglevel != "off" {
+		client.deprecationlog = func(req *http.Request, res *http.Response) {
+			for _, warning := range res.Header["Warning"] {
+				if !*logTypesRemoval && strings.Contains(warning, "[types removal]") {
+					continue
+				}
+				switch loglevel {
+				default:
+					t.Logf("[%s] Deprecation warning: %s", req.URL, warning)
+				case "fail", "error":
+					t.Errorf("[%s] Deprecation warning: %s", req.URL, warning)
+				}
+			}
+		}
+	}
+
 	client.DeleteIndex(testIndexName).Do(context.TODO())
 	client.DeleteIndex(testIndexName2).Do(context.TODO())
 	client.DeleteIndex(testIndexName3).Do(context.TODO())
 	client.DeleteIndex(testIndexName4).Do(context.TODO())
+	client.DeleteIndex(testIndexName5).Do(context.TODO())
+	client.DeleteIndex(testIndexNameEmpty).Do(context.TODO())
 	client.DeleteIndex(testOrderIndex).Do(context.TODO())
 	client.DeleteIndex(testNoSourceIndexName).Do(context.TODO())
 	//client.DeleteIndex(testDoctypeIndex).Do(context.TODO())
@@ -309,7 +365,7 @@ func setupTestClientAndCreateIndex(t logger, options ...ClientOptionFunc) *Clien
 	}
 
 	// Create second index
-	createIndex2, err := client.CreateIndex(testIndexName2).Body(testMapping).Do(context.TODO())
+	createIndex2, err := client.CreateIndex(testIndexName2).Body(testMappingWithContext).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,6 +391,15 @@ func setupTestClientAndCreateIndex(t logger, options ...ClientOptionFunc) *Clien
 		t.Errorf("expected result to be != nil; got: %v", createOrderIndex)
 	}
 
+	// Create empty index
+	createIndexEmpty, err := client.CreateIndex(testIndexNameEmpty).Body(testMapping).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createIndexEmpty == nil {
+		t.Errorf("expected result to be != nil; got: %v", createIndexEmpty)
+	}
+
 	return client
 }
 
@@ -342,33 +407,28 @@ func setupTestClientAndCreateIndexAndLog(t logger, options ...ClientOptionFunc) 
 	return setupTestClientAndCreateIndex(t, SetTraceLog(log.New(os.Stdout, "", 0)))
 }
 
+var _ = setupTestClientAndCreateIndexAndLog // remove unused warning in staticcheck
+
 func setupTestClientAndCreateIndexAndAddDocs(t logger, options ...ClientOptionFunc) *Client {
 	client := setupTestClientAndCreateIndex(t, options...)
 
 	// Add tweets
-	tweet1 := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
-	tweet2 := tweet{User: "olivere", Message: "Another unrelated topic."}
-	tweet3 := tweet{User: "sandrae", Message: "Cycling is fun."}
-	//comment1 := comment{User: "nico", Comment: "You bet."}
+	tweet1 := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch.", Retweets: 108, Tags: []string{"golang", "elasticsearch"}}
+	tweet2 := tweet{User: "olivere", Message: "Another unrelated topic.", Retweets: 0, Tags: []string{"golang"}}
+	tweet3 := tweet{User: "sandrae", Message: "Cycling is fun.", Retweets: 12, Tags: []string{"sports", "cycling"}}
 
-	_, err := client.Index().Index(testIndexName).Type("doc").Id("1").BodyJson(&tweet1).Do(context.TODO())
+	_, err := client.Index().Index(testIndexName).Id("1").BodyJson(&tweet1).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("2").BodyJson(&tweet2).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("2").BodyJson(&tweet2).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("3").Routing("someroutingkey").BodyJson(&tweet3).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("3").Routing("someroutingkey").BodyJson(&tweet3).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	/*
-		_, err = client.Index().Index(testIndexName).Type("comment").Id("1").Parent("3").BodyJson(&comment1).Do(context.TODO())
-		if err != nil {
-			t.Fatal(err)
-		}
-	*/
 
 	// Add orders
 	var orders []order
@@ -382,14 +442,14 @@ func setupTestClientAndCreateIndexAndAddDocs(t logger, options ...ClientOptionFu
 	orders = append(orders, order{Article: "T-Shirt", Manufacturer: "h&m", Price: 19, Time: "2015-06-18"})
 	for i, o := range orders {
 		id := fmt.Sprintf("%d", i)
-		_, err = client.Index().Index(testOrderIndex).Type("doc").Id(id).BodyJson(&o).Do(context.TODO())
+		_, err = client.Index().Index(testOrderIndex).Id(id).BodyJson(&o).Do(context.TODO())
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// Flush
-	_, err = client.Flush().Index(testIndexName, testOrderIndex).Do(context.TODO())
+	// Refresh
+	_, err = client.Refresh().Index(testIndexName, testOrderIndex).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,16 +463,16 @@ func setupTestClientAndCreateIndexAndAddDocsNoSource(t logger, options ...Client
 	tweet1 := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
 	tweet2 := tweet{User: "olivere", Message: "Another unrelated topic."}
 
-	_, err := client.Index().Index(testNoSourceIndexName).Type("doc").Id("1").BodyJson(&tweet1).Do(context.TODO())
+	_, err := client.Index().Index(testNoSourceIndexName).Id("1").BodyJson(&tweet1).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Index().Index(testNoSourceIndexName).Type("doc").Id("2").BodyJson(&tweet2).Do(context.TODO())
+	_, err = client.Index().Index(testNoSourceIndexName).Id("2").BodyJson(&tweet2).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Flush
-	_, err = client.Flush().Index(testNoSourceIndexName).Do(context.TODO())
+	// Refresh
+	_, err = client.Refresh().Index(testNoSourceIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}

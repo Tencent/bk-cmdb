@@ -8,17 +8,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // XPackSecurityGetRoleService retrieves a role by its name.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/security-api-get-role.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/security-api-get-role.html.
 type XPackSecurityGetRoleService struct {
 	client *Client
-	pretty bool
-	name   string
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
+	name string
 }
 
 // NewXPackSecurityGetRoleService creates a new XPackSecurityGetRoleService.
@@ -28,22 +36,56 @@ func NewXPackSecurityGetRoleService(client *Client) *XPackSecurityGetRoleService
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *XPackSecurityGetRoleService) Pretty(pretty bool) *XPackSecurityGetRoleService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *XPackSecurityGetRoleService) Human(human bool) *XPackSecurityGetRoleService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *XPackSecurityGetRoleService) ErrorTrace(errorTrace bool) *XPackSecurityGetRoleService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *XPackSecurityGetRoleService) FilterPath(filterPath ...string) *XPackSecurityGetRoleService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *XPackSecurityGetRoleService) Header(name string, value string) *XPackSecurityGetRoleService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *XPackSecurityGetRoleService) Headers(headers http.Header) *XPackSecurityGetRoleService {
+	s.headers = headers
+	return s
+}
+
 // Name is name of the role to retrieve.
 func (s *XPackSecurityGetRoleService) Name(name string) *XPackSecurityGetRoleService {
 	s.name = name
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *XPackSecurityGetRoleService) Pretty(pretty bool) *XPackSecurityGetRoleService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *XPackSecurityGetRoleService) buildURL() (string, url.Values, error) {
 	// Build URL
-	path, err := uritemplates.Expand("/_xpack/security/role/{name}", map[string]string{
+	path, err := uritemplates.Expand("/_security/role/{name}", map[string]string{
 		"name": s.name,
 	})
 	if err != nil {
@@ -52,8 +94,17 @@ func (s *XPackSecurityGetRoleService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	return path, params, nil
 }
@@ -85,9 +136,10 @@ func (s *XPackSecurityGetRoleService) Do(ctx context.Context) (*XPackSecurityGet
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err
@@ -122,13 +174,13 @@ type XPackSecurityRole struct {
 type XPackSecurityApplicationPrivileges struct {
 	Application string   `json:"application"`
 	Privileges  []string `json:"privileges"`
-	Ressources  []string `json:"resources"`
+	Resources  []string `json:"resources"`
 }
 
 // XPackSecurityIndicesPermissions is the indices permission object
 type XPackSecurityIndicesPermissions struct {
 	Names         []string    `json:"names"`
 	Privileges    []string    `json:"privileges"`
-	FieldSecurity interface{} `json:"field_security"`
+	FieldSecurity interface{} `json:"field_security,omitempty"`
 	Query         string      `json:"query"`
 }

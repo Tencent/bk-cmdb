@@ -1,0 +1,20 @@
+# mongodb settings
+mongo-url = "mongodb://cc:cc@localhost:27017/cmdb"
+
+# elasticsearch settings
+elasticsearch-urls = ["http://localhost:9200"]
+elasticsearch-user = ""
+elasticsearch-password = ""
+gzip = true
+
+# metadata collections.
+change-stream-namespaces = [""]
+direct-read-namespaces = [""]
+direct-read-dynamic-include-regex = "cmdb.cc_ApplicationBase$|cc_SetBase$|cc_ModuleBase$|cmdb.cc_HostBase$|cmdb.cc_ObjDes$|cc_ObjAttDes$|cmdb.cc_ObjectBase_(.*)_pub_"
+namespace-regex = "cmdb.cc_ApplicationBase$|cc_SetBase$|cc_ModuleBase$|cmdb.cc_HostBase$|cmdb.cc_ObjDes$|cc_ObjAttDes$|cmdb.cc_ObjectBase_(.*)_pub_"
+
+# plugin
+mapper-plugin-path = "etc/monstache-plugin.so"
+
+# resume mode
+resume = false

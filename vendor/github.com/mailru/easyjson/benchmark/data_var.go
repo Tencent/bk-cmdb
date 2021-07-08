@@ -178,7 +178,7 @@ var largeStructData = LargeStruct{
 				Verified:                       false,
 			},
 		},
-		Status{
+		{
 			Contributors: nil,
 			Coordinates:  nil,
 			CreatedAt:    "Fri Sep 21 23:30:20 +0000 2012",
@@ -262,7 +262,7 @@ var largeStructData = LargeStruct{
 				Verified:                       false,
 			},
 		},
-		Status{
+		{
 			Contributors: nil,
 			Coordinates:  nil,
 			CreatedAt:    "Fri Sep 21 22:51:18 +0000 2012",

@@ -170,7 +170,7 @@ func (r AtomRule) Match(matcher Matcher) bool {
 
 var (
 	// TODO: should we support dot field separator here?
-	ValidFieldPattern = regexp.MustCompile(`^[a-zA-Z0-9][\d\w\-_.]*$`)
+	ValidFieldPattern = regexp.MustCompile(`^[a-zA-Z0-9_][\d\w\-_.]*$`)
 )
 
 func (r AtomRule) validateField() error {

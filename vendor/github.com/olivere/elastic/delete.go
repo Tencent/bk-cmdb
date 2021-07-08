@@ -9,18 +9,25 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // DeleteService allows to delete a typed JSON document from a specified
 // index based on its id.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-delete.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-delete.html
 // for details.
 type DeleteService struct {
-	client              *Client
-	pretty              bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	id                  string
 	index               string
 	typ                 string
@@ -31,16 +38,61 @@ type DeleteService struct {
 	waitForActiveShards string
 	parent              string
 	refresh             string
+	ifSeqNo             *int64
+	ifPrimaryTerm       *int64
 }
 
 // NewDeleteService creates a new DeleteService.
 func NewDeleteService(client *Client) *DeleteService {
 	return &DeleteService{
 		client: client,
+		typ:    "_doc",
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *DeleteService) Pretty(pretty bool) *DeleteService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *DeleteService) Human(human bool) *DeleteService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *DeleteService) ErrorTrace(errorTrace bool) *DeleteService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *DeleteService) FilterPath(filterPath ...string) *DeleteService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *DeleteService) Header(name string, value string) *DeleteService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *DeleteService) Headers(headers http.Header) *DeleteService {
+	s.headers = headers
+	return s
+}
+
 // Type is the type of the document.
+//
+// Deprecated: Types are in the process of being removed.
 func (s *DeleteService) Type(typ string) *DeleteService {
 	s.typ = typ
 	return s
@@ -100,16 +152,24 @@ func (s *DeleteService) Parent(parent string) *DeleteService {
 
 // Refresh the index after performing the operation.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-refresh.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-refresh.html
 // for details.
 func (s *DeleteService) Refresh(refresh string) *DeleteService {
 	s.refresh = refresh
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *DeleteService) Pretty(pretty bool) *DeleteService {
-	s.pretty = pretty
+// IfSeqNo indicates to only perform the delete operation if the last
+// operation that has changed the document has the specified sequence number.
+func (s *DeleteService) IfSeqNo(seqNo int64) *DeleteService {
+	s.ifSeqNo = &seqNo
+	return s
+}
+
+// IfPrimaryTerm indicates to only perform the delete operation if the
+// last operation that has changed the document has the specified primary term.
+func (s *DeleteService) IfPrimaryTerm(primaryTerm int64) *DeleteService {
+	s.ifPrimaryTerm = &primaryTerm
 	return s
 }
 
@@ -127,8 +187,17 @@ func (s *DeleteService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.refresh != "" {
 		params.Set("refresh", s.refresh)
@@ -139,8 +208,8 @@ func (s *DeleteService) buildURL() (string, url.Values, error) {
 	if s.timeout != "" {
 		params.Set("timeout", s.timeout)
 	}
-	if s.version != nil {
-		params.Set("version", fmt.Sprintf("%v", s.version))
+	if v := s.version; v != nil {
+		params.Set("version", fmt.Sprint(v))
 	}
 	if s.versionType != "" {
 		params.Set("version_type", s.versionType)
@@ -150,6 +219,12 @@ func (s *DeleteService) buildURL() (string, url.Values, error) {
 	}
 	if s.parent != "" {
 		params.Set("parent", s.parent)
+	}
+	if v := s.ifSeqNo; v != nil {
+		params.Set("if_seq_no", fmt.Sprintf("%d", *v))
+	}
+	if v := s.ifPrimaryTerm; v != nil {
+		params.Set("if_primary_term", fmt.Sprintf("%d", *v))
 	}
 	return path, params, nil
 }
@@ -193,6 +268,7 @@ func (s *DeleteService) Do(ctx context.Context) (*DeleteResponse, error) {
 		Path:         path,
 		Params:       params,
 		IgnoreErrors: []int{http.StatusNotFound},
+		Headers:      s.headers,
 	})
 	if err != nil {
 		return nil, err

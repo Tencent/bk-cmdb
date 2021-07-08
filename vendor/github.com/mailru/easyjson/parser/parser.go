@@ -1,15 +1,17 @@
 package parser
 
 import (
-	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os/exec"
+	"os"
 	"strings"
 )
 
-const structComment = "easyjson:json"
+const (
+	structComment     = "easyjson:json"
+	structSkipComment = "easyjson:skip"
+)
 
 type Parser struct {
 	PkgPath     string
@@ -21,17 +23,41 @@ type Parser struct {
 type visitor struct {
 	*Parser
 
-	name     string
-	explicit bool
+	name string
 }
 
-func (p *Parser) needType(comments string) bool {
-	for _, v := range strings.Split(comments, "\n") {
-		if strings.HasPrefix(v, structComment) {
-			return true
+func (p *Parser) needType(comments *ast.CommentGroup) (skip, explicit bool) {
+	if comments == nil {
+		return
+	}
+
+	for _, v := range comments.List {
+		comment := v.Text
+
+		if len(comment) > 2 {
+			switch comment[1] {
+			case '/':
+				// -style comment (no newline at the end)
+				comment = comment[2:]
+			case '*':
+				/*-style comment */
+				comment = comment[2 : len(comment)-2]
+			}
+		}
+
+		for _, comment := range strings.Split(comment, "\n") {
+			comment = strings.TrimSpace(comment)
+
+			if strings.HasPrefix(comment, structSkipComment) {
+				return true, false
+			}
+			if strings.HasPrefix(comment, structComment) {
+				return false, true
+			}
 		}
 	}
-	return false
+
+	return
 }
 
 func (v *visitor) Visit(n ast.Node) (w ast.Visitor) {
@@ -43,20 +69,35 @@ func (v *visitor) Visit(n ast.Node) (w ast.Visitor) {
 		return v
 
 	case *ast.GenDecl:
-		v.explicit = v.needType(n.Doc.Text())
+		skip, explicit := v.needType(n.Doc)
 
-		if !v.explicit && !v.AllStructs {
-			return nil
+		if skip || explicit {
+			for _, nc := range n.Specs {
+				switch nct := nc.(type) {
+				case *ast.TypeSpec:
+					nct.Doc = n.Doc
+				}
+			}
 		}
+
 		return v
 	case *ast.TypeSpec:
+		skip, explicit := v.needType(n.Doc)
+		if skip {
+			return nil
+		}
+		if !explicit && !v.AllStructs {
+			return nil
+		}
+
 		v.name = n.Name.String()
 
 		// Allow to specify non-structs explicitly independent of '-all' flag.
-		if v.explicit {
+		if explicit {
 			v.StructNames = append(v.StructNames, v.name)
 			return nil
 		}
+
 		return v
 	case *ast.StructType:
 		v.StructNames = append(v.StructNames, v.name)
@@ -73,7 +114,7 @@ func (p *Parser) Parse(fname string, isDir bool) error {
 
 	fset := token.NewFileSet()
 	if isDir {
-		packages, err := parser.ParseDir(fset, fname, nil, parser.ParseComments)
+		packages, err := parser.ParseDir(fset, fname, excludeTestFiles, parser.ParseComments)
 		if err != nil {
 			return err
 		}
@@ -92,7 +133,6 @@ func (p *Parser) Parse(fname string, isDir bool) error {
 	return nil
 }
 
-func getDefaultGoPath() (string, error) {
-	output, err := exec.Command("go", "env", "GOPATH").Output()
-	return string(bytes.TrimSpace(output)), err
+func excludeTestFiles(fi os.FileInfo) bool {
+	return !strings.HasSuffix(fi.Name(), "_test.go")
 }

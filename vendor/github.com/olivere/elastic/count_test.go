@@ -58,22 +58,22 @@ func TestCount(t *testing.T) {
 	tweet3 := tweet{User: "sandrae", Message: "Cycling is fun."}
 
 	// Add all documents
-	_, err := client.Index().Index(testIndexName).Type("doc").Id("1").BodyJson(&tweet1).Do(context.TODO())
+	_, err := client.Index().Index(testIndexName).Id("1").BodyJson(&tweet1).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("2").BodyJson(&tweet2).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("2").BodyJson(&tweet2).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Index().Index(testIndexName).Type("doc").Id("3").BodyJson(&tweet3).Do(context.TODO())
+	_, err = client.Index().Index(testIndexName).Id("3").BodyJson(&tweet3).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = client.Flush().Index(testIndexName).Do(context.TODO())
+	_, err = client.Refresh().Index(testIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestCount(t *testing.T) {
 	}
 
 	// Count documents
-	count, err = client.Count(testIndexName).Type("doc").Do(context.TODO())
+	count, err = client.Count(testIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCount(t *testing.T) {
 	}
 
 	// Count documents
-	count, err = client.Count(testIndexName).Type("gezwitscher").Do(context.TODO())
+	count, err = client.Count(testIndexNameEmpty).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,14 +114,56 @@ func TestCount(t *testing.T) {
 	if count != 2 {
 		t.Errorf("expected Count = %d; got %d", 2, count)
 	}
+}
 
-	// Count with query and type
-	query = NewTermQuery("user", "olivere")
-	count, err = client.Count(testIndexName).Type("doc").Query(query).Do(context.TODO())
+func TestCountWithThrottledIndex(t *testing.T) {
+	client := setupTestClient(t, SetURL("http://elastic:elastic@localhost:9210"))
+
+	tweet1 := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
+	tweet2 := tweet{User: "olivere", Message: "Another unrelated topic."}
+	tweet3 := tweet{User: "sandrae", Message: "Cycling is fun."}
+
+	// Add all documents
+	_, err := client.Index().Index(testIndexName).Id("1").BodyJson(&tweet1).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Errorf("expected Count = %d; got %d", 2, count)
+
+	_, err = client.Index().Index(testIndexName).Id("2").BodyJson(&tweet2).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = client.Index().Index(testIndexName).Id("3").BodyJson(&tweet3).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = client.FreezeIndex(testIndexName).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = client.Refresh().Index(testIndexName).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Count documents
+	count, err := client.Count(testIndexName).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected Count = %d; got %d", 3, count)
+	}
+
+	// Count documents
+	count, err = client.Count(testIndexName).IgnoreThrottled(false).Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Errorf("expected Count = %d; got %d", 3, count)
 	}
 }

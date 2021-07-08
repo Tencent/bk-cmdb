@@ -579,7 +579,7 @@ type DeepNest struct {
 
 var deepNestValue = DeepNest{
 	SliceMap: map[Str][]Str{
-		"testSliceMap": []Str{
+		"testSliceMap": {
 			"0",
 			"1",
 		},
@@ -588,39 +588,39 @@ var deepNestValue = DeepNest{
 		"testSliceMap1": []Str(nil),
 	},
 	SliceMap2: map[Str][]Str{
-		"testSliceMap2": []Str{},
+		"testSliceMap2": {},
 	},
 	NamedSliceMap: map[Str]NamedSlice{
-		"testNamedSliceMap": NamedSlice{
+		"testNamedSliceMap": {
 			"2",
 			"3",
 		},
 	},
 	NamedMapMap: map[Str]NamedMap{
-		"testNamedMapMap": NamedMap{
+		"testNamedMapMap": {
 			"key1": "value1",
 		},
 	},
 	MapSlice: []map[Str]Str{
-		map[Str]Str{
+		{
 			"testMapSlice": "someValue",
 		},
 	},
 	NamedSliceSlice: []NamedSlice{
-		NamedSlice{
+		{
 			"someValue1",
 			"someValue2",
 		},
-		NamedSlice{
+		{
 			"someValue3",
 			"someValue4",
 		},
 	},
 	NamedMapSlice: []NamedMap{
-		NamedMap{
+		{
 			"key2": "value2",
 		},
-		NamedMap{
+		{
 			"key3": "value3",
 		},
 	},
@@ -659,6 +659,20 @@ var deepNestString = `{` +
 	`"NamedStringSlice":["value4","value5"]` +
 	`}`
 
+type DeepNestOptional struct {
+	MapSlice []map[Str]Str `json:",omitempty"`
+}
+
+var deepNestOptionalValue = DeepNestOptional{
+	MapSlice: []map[Str]Str{{}},
+}
+
+var deepNestOptionalString = `{` +
+	`"MapSlice":[` +
+	`{}` +
+	`]` +
+	`}`
+
 //easyjson:json
 type Ints []int
 
@@ -676,6 +690,12 @@ var mapStringStringString = `{"a":"b"}`
 type RequiredOptionalStruct struct {
 	FirstName string `json:"first_name,required"`
 	Lastname  string `json:"last_name"`
+}
+
+type RequiredOptionalMap struct {
+	ReqMap         map[int]string `json:"req_map,required"`
+	OmitEmptyMap   map[int]string `json:"oe_map,omitempty"`
+	NoOmitEmptyMap map[int]string `json:"noe_map,!omitempty"`
 }
 
 //easyjson:json

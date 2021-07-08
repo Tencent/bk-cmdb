@@ -8,16 +8,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // XPackWatcherActivateWatchService enables you to activate a currently inactive watch.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/watcher-api-activate-watch.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/watcher-api-activate-watch.html.
 type XPackWatcherActivateWatchService struct {
-	client        *Client
-	pretty        bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	watchId       string
 	masterTimeout string
 }
@@ -27,6 +35,46 @@ func NewXPackWatcherActivateWatchService(client *Client) *XPackWatcherActivateWa
 	return &XPackWatcherActivateWatchService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *XPackWatcherActivateWatchService) Pretty(pretty bool) *XPackWatcherActivateWatchService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *XPackWatcherActivateWatchService) Human(human bool) *XPackWatcherActivateWatchService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *XPackWatcherActivateWatchService) ErrorTrace(errorTrace bool) *XPackWatcherActivateWatchService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *XPackWatcherActivateWatchService) FilterPath(filterPath ...string) *XPackWatcherActivateWatchService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *XPackWatcherActivateWatchService) Header(name string, value string) *XPackWatcherActivateWatchService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *XPackWatcherActivateWatchService) Headers(headers http.Header) *XPackWatcherActivateWatchService {
+	s.headers = headers
+	return s
 }
 
 // WatchId is the ID of the watch to activate.
@@ -41,16 +89,10 @@ func (s *XPackWatcherActivateWatchService) MasterTimeout(masterTimeout string) *
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *XPackWatcherActivateWatchService) Pretty(pretty bool) *XPackWatcherActivateWatchService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *XPackWatcherActivateWatchService) buildURL() (string, url.Values, error) {
 	// Build URL
-	path, err := uritemplates.Expand("/_xpack/watcher/watch/{watch_id}/_activate", map[string]string{
+	path, err := uritemplates.Expand("/_watcher/watch/{watch_id}/_activate", map[string]string{
 		"watch_id": s.watchId,
 	})
 	if err != nil {
@@ -59,8 +101,17 @@ func (s *XPackWatcherActivateWatchService) buildURL() (string, url.Values, error
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.masterTimeout != "" {
 		params.Set("master_timeout", s.masterTimeout)
@@ -95,9 +146,10 @@ func (s *XPackWatcherActivateWatchService) Do(ctx context.Context) (*XPackWatche
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "PUT",
-		Path:   path,
-		Params: params,
+		Method:  "PUT",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

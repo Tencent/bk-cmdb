@@ -7,32 +7,76 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // NodesInfoService allows to retrieve one or more or all of the
 // cluster nodes information.
-// It is documented at https://www.elastic.co/guide/en/elasticsearch/reference/6.7/cluster-nodes-info.html.
+// It is documented at https://www.elastic.co/guide/en/elasticsearch/reference/7.0/cluster-nodes-info.html.
 type NodesInfoService struct {
-	client       *Client
-	pretty       bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	nodeId       []string
 	metric       []string
 	flatSettings *bool
-	human        *bool
 }
 
 // NewNodesInfoService creates a new NodesInfoService.
 func NewNodesInfoService(client *Client) *NodesInfoService {
 	return &NodesInfoService{
 		client: client,
-		nodeId: []string{"_all"},
-		metric: []string{"_all"},
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *NodesInfoService) Pretty(pretty bool) *NodesInfoService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *NodesInfoService) Human(human bool) *NodesInfoService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *NodesInfoService) ErrorTrace(errorTrace bool) *NodesInfoService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *NodesInfoService) FilterPath(filterPath ...string) *NodesInfoService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *NodesInfoService) Header(name string, value string) *NodesInfoService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *NodesInfoService) Headers(headers http.Header) *NodesInfoService {
+	s.headers = headers
+	return s
 }
 
 // NodeId is a list of node IDs or names to limit the returned information.
@@ -57,24 +101,26 @@ func (s *NodesInfoService) FlatSettings(flatSettings bool) *NodesInfoService {
 	return s
 }
 
-// Human indicates whether to return time and byte values in human-readable format.
-func (s *NodesInfoService) Human(human bool) *NodesInfoService {
-	s.human = &human
-	return s
-}
-
-// Pretty indicates whether to indent the returned JSON.
-func (s *NodesInfoService) Pretty(pretty bool) *NodesInfoService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *NodesInfoService) buildURL() (string, url.Values, error) {
+	var nodeId, metric string
+
+	if len(s.nodeId) > 0 {
+		nodeId = strings.Join(s.nodeId, ",")
+	} else {
+		nodeId = "_all"
+	}
+
+	if len(s.metric) > 0 {
+		metric = strings.Join(s.metric, ",")
+	} else {
+		metric = "_all"
+	}
+
 	// Build URL
 	path, err := uritemplates.Expand("/_nodes/{node_id}/{metric}", map[string]string{
-		"node_id": strings.Join(s.nodeId, ","),
-		"metric":  strings.Join(s.metric, ","),
+		"node_id": nodeId,
+		"metric":  metric,
 	})
 	if err != nil {
 		return "", url.Values{}, err
@@ -82,14 +128,20 @@ func (s *NodesInfoService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
 	if s.flatSettings != nil {
 		params.Set("flat_settings", fmt.Sprintf("%v", *s.flatSettings))
-	}
-	if s.human != nil {
-		params.Set("human", fmt.Sprintf("%v", *s.human))
-	}
-	if s.pretty {
-		params.Set("pretty", "true")
 	}
 	return path, params, nil
 }
@@ -114,9 +166,10 @@ func (s *NodesInfoService) Do(ctx context.Context) (*NodesInfoResponse, error) {
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

@@ -7,20 +7,26 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // CatIndicesService returns the list of indices plus some additional
 // information about them.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/cat-indices.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/cat-indices.html
 // for details.
 type CatIndicesService struct {
-	client        *Client
-	pretty        bool
+	client *Client
+
+	pretty     *bool    // pretty format the returned JSON response
+	human      *bool    // return human readable values for statistics
+	errorTrace *bool    // include the stack trace of returned errors
+	filterPath []string // list of filters used to reduce the response
+
 	index         string
 	bytes         string // b, k, m, or g
 	local         *bool
@@ -29,6 +35,7 @@ type CatIndicesService struct {
 	health        string   // green, yellow, or red
 	primaryOnly   *bool    // true for primary shards only
 	sort          []string // list of columns for sort order
+	headers       http.Header
 }
 
 // NewCatIndicesService creates a new CatIndicesService.
@@ -36,6 +43,46 @@ func NewCatIndicesService(client *Client) *CatIndicesService {
 	return &CatIndicesService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *CatIndicesService) Pretty(pretty bool) *CatIndicesService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *CatIndicesService) Human(human bool) *CatIndicesService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *CatIndicesService) ErrorTrace(errorTrace bool) *CatIndicesService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *CatIndicesService) FilterPath(filterPath ...string) *CatIndicesService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *CatIndicesService) Header(name string, value string) *CatIndicesService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *CatIndicesService) Headers(headers http.Header) *CatIndicesService {
+	s.headers = headers
+	return s
 }
 
 // Index is the name of the index to list (by default all indices are returned).
@@ -97,12 +144,6 @@ func (s *CatIndicesService) Sort(fields ...string) *CatIndicesService {
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *CatIndicesService) Pretty(pretty bool) *CatIndicesService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *CatIndicesService) buildURL() (string, url.Values, error) {
 	// Build URL
@@ -126,8 +167,17 @@ func (s *CatIndicesService) buildURL() (string, url.Values, error) {
 	params := url.Values{
 		"format": []string{"json"}, // always returns as JSON
 	}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.bytes != "" {
 		params.Set("bytes", s.bytes)
@@ -139,6 +189,22 @@ func (s *CatIndicesService) buildURL() (string, url.Values, error) {
 		params.Set("master_timeout", s.masterTimeout)
 	}
 	if len(s.columns) > 0 {
+		// loop through all columns and apply alias if needed
+		for i, column := range s.columns {
+			if fullValueRaw, isAliased := catIndicesResponseRowAliasesMap[column]; isAliased {
+				// alias can be translated to multiple fields,
+				// so if translated value contains a comma, than replace the first value
+				// and append the others
+				if strings.Contains(fullValueRaw, ",") {
+					fullValues := strings.Split(fullValueRaw, ",")
+					s.columns[i] = fullValues[0]
+					s.columns = append(s.columns, fullValues[1:]...)
+				} else {
+					s.columns[i] = fullValueRaw
+				}
+			}
+		}
+
 		params.Set("h", strings.Join(s.columns, ","))
 	}
 	if s.health != "" {
@@ -163,9 +229,10 @@ func (s *CatIndicesService) Do(ctx context.Context) (CatIndicesResponse, error) 
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err
@@ -219,8 +286,8 @@ type CatIndicesResponseRow struct {
 	PriRequestCacheHitCount      int    `json:"pri.request_cache.hit_count,string"`  // request cache hit count on primaries
 	RequestCacheMissCount        int    `json:"request_cache.miss_count,string"`     // request cache miss count on primaries & replicas
 	PriRequestCacheMissCount     int    `json:"pri.request_cache.miss_count,string"` // request cache miss count on primaries
-	FlushTotal                   int    `json:"flush.total"`                         // number of flushes on primaries & replicas
-	PriFlushTotal                int    `json:"pri.flush.total"`                     // number of flushes on primaries
+	FlushTotal                   int    `json:"flush.total,string"`                  // number of flushes on primaries & replicas
+	PriFlushTotal                int    `json:"pri.flush.total,string"`              // number of flushes on primaries
 	FlushTotalTime               string `json:"flush.total_time"`                    // time spent in flush on primaries & replicas
 	PriFlushTotalTime            string `json:"pri.flush.total_time"`                // time spent in flush on primaries
 	GetCurrent                   int    `json:"get.current,string"`                  // number of current get ops on primaries & replicas
@@ -267,8 +334,12 @@ type CatIndicesResponseRow struct {
 	PriMergesTotalTime           string `json:"pri.merges.total_time"`               // time spent in merges on primaries
 	RefreshTotal                 int    `json:"refresh.total,string"`                // total refreshes on primaries & replicas
 	PriRefreshTotal              int    `json:"pri.refresh.total,string"`            // total refreshes on primaries
+	RefreshExternalTotal         int    `json:"refresh.external_total,string"`       // total external refreshes on primaries & replicas
+	PriRefreshExternalTotal      int    `json:"pri.refresh.external_total,string"`   // total external refreshes on primaries
 	RefreshTime                  string `json:"refresh.time"`                        // time spent in refreshes on primaries & replicas
 	PriRefreshTime               string `json:"pri.refresh.time"`                    // time spent in refreshes on primaries
+	RefreshExternalTime          string `json:"refresh.external_time"`               // external time spent in refreshes on primaries & replicas
+	PriRefreshExternalTime       string `json:"pri.refresh.external_time"`           // external time spent in refreshes on primaries
 	RefreshListeners             int    `json:"refresh.listeners,string"`            // number of pending refresh listeners on primaries & replicas
 	PriRefreshListeners          int    `json:"pri.refresh.listeners,string"`        // number of pending refresh listeners on primaries
 	SearchFetchCurrent           int    `json:"search.fetch_current,string"`         // current fetch phase ops on primaries & replicas
@@ -291,6 +362,7 @@ type CatIndicesResponseRow struct {
 	PriSearchScrollTime          string `json:"pri.search.scroll_time"`              // time scroll contexts held open on primaries, e.g. "0s"
 	SearchScrollTotal            int    `json:"search.scroll_total,string"`          // completed scroll contexts on primaries & replicas
 	PriSearchScrollTotal         int    `json:"pri.search.scroll_total,string"`      // completed scroll contexts on primaries
+	SearchThrottled              bool   `json:"search.throttled,string"`             // indicates if the index is search throttled
 	SegmentsCount                int    `json:"segments.count,string"`               // number of segments on primaries & replicas
 	PriSegmentsCount             int    `json:"pri.segments.count,string"`           // number of segments on primaries
 	SegmentsMemory               string `json:"segments.memory"`                     // memory used by segments on primaries & replicas, e.g. "1.3kb"
@@ -301,8 +373,8 @@ type CatIndicesResponseRow struct {
 	PriSegmentsVersionMapMemory  string `json:"pri.segments.version_map_memory"`     // memory used by version map on primaries, e.g. "0b"
 	SegmentsFixedBitsetMemory    string `json:"segments.fixed_bitset_memory"`        // memory used by fixed bit sets for nested object field types and type filters for types referred in _parent fields on primaries & replicas, e.g. "0b"
 	PriSegmentsFixedBitsetMemory string `json:"pri.segments.fixed_bitset_memory"`    // memory used by fixed bit sets for nested object field types and type filters for types referred in _parent fields on primaries, e.g. "0b"
-	WarmerCurrent                int    `json:"warmer.count,string"`                 // current warmer ops on primaries & replicas
-	PriWarmerCurrent             int    `json:"pri.warmer.count,string"`             // current warmer ops on primaries
+	WarmerCurrent                int    `json:"warmer.current,string"`               // current warmer ops on primaries & replicas
+	PriWarmerCurrent             int    `json:"pri.warmer.current,string"`           // current warmer ops on primaries
 	WarmerTotal                  int    `json:"warmer.total,string"`                 // total warmer ops on primaries & replicas
 	PriWarmerTotal               int    `json:"pri.warmer.total,string"`             // total warmer ops on primaries
 	WarmerTotalTime              string `json:"warmer.total_time"`                   // time spent in warmers on primaries & replicas, e.g. "47s"
@@ -315,4 +387,145 @@ type CatIndicesResponseRow struct {
 	PriSuggestTotal              int    `json:"pri.suggest.total,string"`            // number of suggest ops on primaries
 	MemoryTotal                  string `json:"memory.total"`                        // total user memory on primaries & replicas, e.g. "1.5kb"
 	PriMemoryTotal               string `json:"pri.memory.total"`                    // total user memory on primaries, e.g. "1.5kb"
+}
+
+// catIndicesResponseRowAliasesMap holds the global map for columns aliases
+// the map is used by CatIndicesService.buildURL
+// for backwards compatibility some fields are able to have the same aliases
+// that means that one alias can be translated to different columns (from different elastic versions)
+// example for understanding: rto -> RefreshTotal, RefreshExternalTotal
+var catIndicesResponseRowAliasesMap = map[string]string{
+	"qce":                       "query_cache.evictions",
+	"searchFetchTime":           "search.fetch_time",
+	"memoryTotal":               "memory.total",
+	"requestCacheEvictions":     "request_cache.evictions",
+	"ftt":                       "flush.total_time",
+	"iic":                       "indexing.index_current",
+	"mtt":                       "merges.total_time",
+	"scti":                      "search.scroll_time",
+	"searchScrollTime":          "search.scroll_time",
+	"segmentsCount":             "segments.count",
+	"getTotal":                  "get.total",
+	"sfti":                      "search.fetch_time",
+	"searchScrollCurrent":       "search.scroll_current",
+	"svmm":                      "segments.version_map_memory",
+	"warmerTotalTime":           "warmer.total_time",
+	"r":                         "rep",
+	"indexingIndexTime":         "indexing.index_time",
+	"refreshTotal":              "refresh.total,refresh.external_total",
+	"scc":                       "search.scroll_current",
+	"suggestTime":               "suggest.time",
+	"idc":                       "indexing.delete_current",
+	"rti":                       "refresh.time,refresh.external_time",
+	"sfto":                      "search.fetch_total",
+	"completionSize":            "completion.size",
+	"mt":                        "merges.total",
+	"segmentsVersionMapMemory":  "segments.version_map_memory",
+	"rto":                       "refresh.total,refresh.external_total",
+	"id":                        "uuid",
+	"dd":                        "docs.deleted",
+	"docsDeleted":               "docs.deleted",
+	"fielddataMemory":           "fielddata.memory_size",
+	"getTime":                   "get.time",
+	"getExistsTime":             "get.exists_time",
+	"mtd":                       "merges.total_docs",
+	"rli":                       "refresh.listeners",
+	"h":                         "health",
+	"cds":                       "creation.date.string",
+	"rcmc":                      "request_cache.miss_count",
+	"iif":                       "indexing.index_failed",
+	"warmerCurrent":             "warmer.current",
+	"gti":                       "get.time",
+	"indexingIndexFailed":       "indexing.index_failed",
+	"mts":                       "merges.total_size",
+	"sqti":                      "search.query_time",
+	"segmentsIndexWriterMemory": "segments.index_writer_memory",
+	"iiti":                      "indexing.index_time",
+	"iito":                      "indexing.index_total",
+	"cd":                        "creation.date",
+	"gc":                        "get.current",
+	"searchFetchTotal":          "search.fetch_total",
+	"sqc":                       "search.query_current",
+	"segmentsMemory":            "segments.memory",
+	"dc":                        "docs.count",
+	"qcm":                       "query_cache.memory_size",
+	"queryCacheMemory":          "query_cache.memory_size",
+	"mergesTotalDocs":           "merges.total_docs",
+	"searchOpenContexts":        "search.open_contexts",
+	"shards.primary":            "pri",
+	"cs":                        "completion.size",
+	"mergesTotalTIme":           "merges.total_time",
+	"wtt":                       "warmer.total_time",
+	"mergesCurrentSize":         "merges.current_size",
+	"mergesTotal":               "merges.total",
+	"refreshTime":               "refresh.time,refresh.external_time",
+	"wc":                        "warmer.current",
+	"p":                         "pri",
+	"idti":                      "indexing.delete_time",
+	"searchQueryCurrent":        "search.query_current",
+	"warmerTotal":               "warmer.total",
+	"suggestTotal":              "suggest.total",
+	"tm":                        "memory.total",
+	"ss":                        "store.size",
+	"ft":                        "flush.total",
+	"getExistsTotal":            "get.exists_total",
+	"scto":                      "search.scroll_total",
+	"s":                         "status",
+	"queryCacheEvictions":       "query_cache.evictions",
+	"rce":                       "request_cache.evictions",
+	"geto":                      "get.exists_total",
+	"refreshListeners":          "refresh.listeners",
+	"suto":                      "suggest.total",
+	"storeSize":                 "store.size",
+	"gmti":                      "get.missing_time",
+	"indexingIdexCurrent":       "indexing.index_current",
+	"searchFetchCurrent":        "search.fetch_current",
+	"idx":                       "index",
+	"fm":                        "fielddata.memory_size",
+	"geti":                      "get.exists_time",
+	"indexingDeleteCurrent":     "indexing.delete_current",
+	"mergesCurrentDocs":         "merges.current_docs",
+	"sth":                       "search.throttled",
+	"flushTotal":                "flush.total",
+	"sfc":                       "search.fetch_current",
+	"wto":                       "warmer.total",
+	"suti":                      "suggest.time",
+	"shardsReplica":             "rep",
+	"mergesCurrent":             "merges.current",
+	"mcs":                       "merges.current_size",
+	"so":                        "search.open_contexts",
+	"i":                         "index",
+	"siwm":                      "segments.index_writer_memory",
+	"sfbm":                      "segments.fixed_bitset_memory",
+	"fe":                        "fielddata.evictions",
+	"requestCacheMissCount":     "request_cache.miss_count",
+	"idto":                      "indexing.delete_total",
+	"mergesTotalSize":           "merges.total_size",
+	"suc":                       "suggest.current",
+	"suggestCurrent":            "suggest.current",
+	"flushTotalTime":            "flush.total_time",
+	"getMissingTotal":           "get.missing_total",
+	"sqto":                      "search.query_total",
+	"searchScrollTotal":         "search.scroll_total",
+	"fixedBitsetMemory":         "segments.fixed_bitset_memory",
+	"getMissingTime":            "get.missing_time",
+	"indexingDeleteTotal":       "indexing.delete_total",
+	"mcd":                       "merges.current_docs",
+	"docsCount":                 "docs.count",
+	"gto":                       "get.total",
+	"mc":                        "merges.current",
+	"fielddataEvictions":        "fielddata.evictions",
+	"rcm":                       "request_cache.memory_size",
+	"requestCacheHitCount":      "request_cache.hit_count",
+	"gmto":                      "get.missing_total",
+	"searchQueryTime":           "search.query_time",
+	"shards.replica":            "rep",
+	"requestCacheMemory":        "request_cache.memory_size",
+	"rchc":                      "request_cache.hit_count",
+	"getCurrent":                "get.current",
+	"indexingIndexTotal":        "indexing.index_total",
+	"sc":                        "segments.count,segments.memory",
+	"shardsPrimary":             "pri",
+	"indexingDeleteTime":        "indexing.delete_time",
+	"searchQueryTotal":          "search.query_total",
 }

@@ -7,6 +7,7 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -16,11 +17,17 @@ import (
 // a docs array with all the fetched documents, each element similar
 // in structure to a document provided by the Get API.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-multi-get.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-multi-get.html
 // for details.
 type MgetService struct {
-	client       *Client
-	pretty       bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	preference   string
 	realtime     *bool
 	refresh      string
@@ -37,6 +44,46 @@ func NewMgetService(client *Client) *MgetService {
 	return builder
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *MgetService) Pretty(pretty bool) *MgetService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *MgetService) Human(human bool) *MgetService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *MgetService) ErrorTrace(errorTrace bool) *MgetService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *MgetService) FilterPath(filterPath ...string) *MgetService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *MgetService) Header(name string, value string) *MgetService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *MgetService) Headers(headers http.Header) *MgetService {
+	s.headers = headers
+	return s
+}
+
 // Preference specifies the node or shard the operation should be performed
 // on (default: random).
 func (s *MgetService) Preference(preference string) *MgetService {
@@ -46,7 +93,7 @@ func (s *MgetService) Preference(preference string) *MgetService {
 
 // Refresh the shard containing the document before performing the operation.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-refresh.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-refresh.html
 // for details.
 func (s *MgetService) Refresh(refresh string) *MgetService {
 	s.refresh = refresh
@@ -68,12 +115,6 @@ func (s *MgetService) Routing(routing string) *MgetService {
 // StoredFields is a list of fields to return in the response.
 func (s *MgetService) StoredFields(storedFields ...string) *MgetService {
 	s.storedFields = append(s.storedFields, storedFields...)
-	return s
-}
-
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *MgetService) Pretty(pretty bool) *MgetService {
-	s.pretty = pretty
 	return s
 }
 
@@ -103,7 +144,19 @@ func (s *MgetService) Do(ctx context.Context) (*MgetResponse, error) {
 	// Build url
 	path := "/_mget"
 
-	params := make(url.Values)
+	params := url.Values{}
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
 	if s.realtime != nil {
 		params.Add("realtime", fmt.Sprintf("%v", *s.realtime))
 	}
@@ -128,10 +181,11 @@ func (s *MgetService) Do(ctx context.Context) (*MgetResponse, error) {
 
 	// Get response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
-		Body:   body,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Body:    body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err
@@ -237,7 +291,7 @@ func (item *MultiGetItem) Source() (interface{}, error) {
 		source["_source"] = src
 	}
 	if item.routing != "" {
-		source["_routing"] = item.routing
+		source["routing"] = item.routing
 	}
 	if len(item.storedFields) > 0 {
 		source["stored_fields"] = strings.Join(item.storedFields, ",")

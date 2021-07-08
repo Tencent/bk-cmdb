@@ -34,7 +34,7 @@ func TestFieldCapsURLs(t *testing.T) {
 		{
 			Service: &FieldCapsService{
 				index:  []string{"index_*"},
-				pretty: true,
+				pretty: boolPtr(true),
 			},
 			ExpectedPath:   "/index_%2A/_field_caps",
 			ExpectedParams: url.Values{"pretty": []string{"true"}},
@@ -174,8 +174,7 @@ func TestFieldCapsResponse(t *testing.T) {
 }
 
 func TestFieldCapsIntegrationTest(t *testing.T) {
-	client := setupTestClientAndCreateIndexAndAddDocs(t)
-	// client := setupTestClientAndCreateIndexAndAddDocs(t, SetTraceLog(log.New(os.Stdout, "", 0)))
+	client := setupTestClientAndCreateIndexAndAddDocs(t) //, SetTraceLog(log.New(os.Stdout, "", 0)))
 
 	res, err := client.FieldCaps("_all").Fields("user", "message", "retweets", "created").Pretty(true).Do(context.TODO())
 	if err != nil {

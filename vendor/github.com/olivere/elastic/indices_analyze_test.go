@@ -50,7 +50,7 @@ func TestIndicesAnalyzeDetail(t *testing.T) {
 	client := setupTestClient(t)
 	// client := setupTestClientAndCreateIndexAndLog(t, SetTraceLog(log.New(os.Stdout, "", 0)))
 
-	res, err := client.IndexAnalyze().Text("hello hi guy").Explain(true).Do(context.TODO())
+	res, err := client.IndexAnalyze().Text("hello hi guy").Explain(true).Pretty(true).Do(context.TODO())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -67,7 +67,7 @@ func TestIndicesAnalyzeWithIndex(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if want, have := "elastic: Error 404 (Not Found): no such index [type=index_not_found_exception]", err.Error(); want != have {
+	if want, have := "elastic: Error 404 (Not Found): no such index [foo] [type=index_not_found_exception]", err.Error(); want != have {
 		t.Fatalf("expected error %q, got %q", want, have)
 	}
 }

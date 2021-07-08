@@ -169,7 +169,7 @@ func (s *Service) initFullTextSearch(web *restful.WebService) {
 		Language: s.Engine.Language,
 	})
 
-	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/full_text", Handler: s.FullTextFind})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/full_text", Handler: s.FullTextSearch})
 
 	utility.AddToRestfulWebService(web)
 }

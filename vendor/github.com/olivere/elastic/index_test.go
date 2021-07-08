@@ -7,6 +7,7 @@ package elastic
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 )
 
@@ -18,7 +19,6 @@ func TestIndexLifecycle(t *testing.T) {
 	// Add a document
 	indexResult, err := client.Index().
 		Index(testIndexName).
-		Type("doc").
 		Id("1").
 		BodyJson(&tweet1).
 		Do(context.TODO())
@@ -30,7 +30,7 @@ func TestIndexLifecycle(t *testing.T) {
 	}
 
 	// Exists
-	exists, err := client.Exists().Index(testIndexName).Type("doc").Id("1").Do(context.TODO())
+	exists, err := client.Exists().Index(testIndexName).Id("1").Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,6 @@ func TestIndexLifecycle(t *testing.T) {
 	// Get document
 	getResult, err := client.Get().
 		Index(testIndexName).
-		Type("doc").
 		Id("1").
 		Do(context.TODO())
 	if err != nil {
@@ -50,8 +49,8 @@ func TestIndexLifecycle(t *testing.T) {
 	if getResult.Index != testIndexName {
 		t.Errorf("expected GetResult.Index %q; got %q", testIndexName, getResult.Index)
 	}
-	if getResult.Type != "doc" {
-		t.Errorf("expected GetResult.Type %q; got %q", "doc", getResult.Type)
+	if getResult.Type != "_doc" {
+		t.Errorf("expected GetResult.Type %q; got %q", "_doc", getResult.Type)
 	}
 	if getResult.Id != "1" {
 		t.Errorf("expected GetResult.Id %q; got %q", "1", getResult.Id)
@@ -62,7 +61,7 @@ func TestIndexLifecycle(t *testing.T) {
 
 	// Decode the Source field
 	var tweetGot tweet
-	err = json.Unmarshal(*getResult.Source, &tweetGot)
+	err = json.Unmarshal(getResult.Source, &tweetGot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +73,7 @@ func TestIndexLifecycle(t *testing.T) {
 	}
 
 	// Delete document again
-	deleteResult, err := client.Delete().Index(testIndexName).Type("doc").Id("1").Do(context.TODO())
+	deleteResult, err := client.Delete().Index(testIndexName).Id("1").Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +82,7 @@ func TestIndexLifecycle(t *testing.T) {
 	}
 
 	// Exists
-	exists, err = client.Exists().Index(testIndexName).Type("doc").Id("1").Do(context.TODO())
+	exists, err = client.Exists().Index(testIndexName).Id("1").Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +99,6 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	// Add a document
 	indexResult, err := client.Index().
 		Index(testIndexName).
-		Type("doc").
 		BodyJson(&tweet1).
 		Do(context.TODO())
 	if err != nil {
@@ -115,7 +113,7 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	id := indexResult.Id
 
 	// Exists
-	exists, err := client.Exists().Index(testIndexName).Type("doc").Id(id).Do(context.TODO())
+	exists, err := client.Exists().Index(testIndexName).Id(id).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +124,6 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	// Get document
 	getResult, err := client.Get().
 		Index(testIndexName).
-		Type("doc").
 		Id(id).
 		Do(context.TODO())
 	if err != nil {
@@ -135,8 +132,8 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	if getResult.Index != testIndexName {
 		t.Errorf("expected GetResult.Index %q; got %q", testIndexName, getResult.Index)
 	}
-	if getResult.Type != "doc" {
-		t.Errorf("expected GetResult.Type %q; got %q", "doc", getResult.Type)
+	if getResult.Type != "_doc" {
+		t.Errorf("expected GetResult.Type %q; got %q", "_doc", getResult.Type)
 	}
 	if getResult.Id != id {
 		t.Errorf("expected GetResult.Id %q; got %q", id, getResult.Id)
@@ -147,7 +144,7 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 
 	// Decode the Source field
 	var tweetGot tweet
-	err = json.Unmarshal(*getResult.Source, &tweetGot)
+	err = json.Unmarshal(getResult.Source, &tweetGot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +156,7 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	}
 
 	// Delete document again
-	deleteResult, err := client.Delete().Index(testIndexName).Type("doc").Id(id).Do(context.TODO())
+	deleteResult, err := client.Delete().Index(testIndexName).Id(id).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +165,7 @@ func TestIndexLifecycleWithAutomaticIDGeneration(t *testing.T) {
 	}
 
 	// Exists
-	exists, err = client.Exists().Index(testIndexName).Type("doc").Id(id).Do(context.TODO())
+	exists, err = client.Exists().Index(testIndexName).Id(id).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,18 +180,9 @@ func TestIndexValidate(t *testing.T) {
 	tweet := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
 
 	// No index name -> fail with error
-	res, err := NewIndexService(client).Type("doc").Id("1").BodyJson(&tweet).Do(context.TODO())
+	res, err := NewIndexService(client).Id("1").BodyJson(&tweet).Do(context.TODO())
 	if err == nil {
 		t.Fatalf("expected Index to fail without index name")
-	}
-	if res != nil {
-		t.Fatalf("expected result to be == nil; got: %v", res)
-	}
-
-	// No index name -> fail with error
-	res, err = NewIndexService(client).Index(testIndexName).Id("1").BodyJson(&tweet).Do(context.TODO())
-	if err == nil {
-		t.Fatalf("expected Index to fail without type")
 	}
 	if res != nil {
 		t.Fatalf("expected result to be == nil; got: %v", res)
@@ -230,8 +218,8 @@ func TestIndexCreateExistsOpenCloseDelete(t *testing.T) {
 		t.Fatalf("expected index exists=%v; got %v", true, indexExists)
 	}
 
-	// Flush
-	_, err = client.Flush().Index(testIndexName).Do(context.TODO())
+	// Refresh
+	_, err = client.Refresh().Index(testIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,8 +248,8 @@ func TestIndexCreateExistsOpenCloseDelete(t *testing.T) {
 		t.Errorf("expected ack for opening index; got: %v", openIndex.Acknowledged)
 	}
 
-	// Flush
-	_, err = client.Flush().Index(testIndexName).Do(context.TODO())
+	// Refresh
+	_, err = client.Refresh().Index(testIndexName).Do(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,5 +264,97 @@ func TestIndexCreateExistsOpenCloseDelete(t *testing.T) {
 	}
 	if !deleteIndex.Acknowledged {
 		t.Errorf("expected ack for deleting index; got %v", deleteIndex.Acknowledged)
+	}
+}
+
+func TestIndexOptimistic(t *testing.T) {
+	client := setupTestClientAndCreateIndex(t) //, SetTraceLog(log.New(os.Stdout, "", 0)))
+
+	tw := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
+
+	// Add a document
+	doc, err := client.Index().
+		Index(testIndexName).Id("1").
+		BodyJson(&tw).
+		Do(context.TODO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc == nil {
+		t.Errorf("expected result to be != nil; got: %v", doc)
+	}
+
+	tw.Retweets++
+
+	// Index with seqNo != doc.SeqNo and primaryTerm != doc.PrimaryTerm
+	_, err = client.Index().
+		Index(testIndexName).Id(doc.Id).
+		IfSeqNo(doc.SeqNo + 1000).
+		IfPrimaryTerm(doc.PrimaryTerm + 1000).
+		BodyJson(&tw).
+		Do(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsConflict(err) {
+		t.Fatalf("expected conflict error, got %v (%T)", err, err)
+	}
+
+	// Index with seqNo == doc.SeqNo and primaryTerm == doc.PrimaryTerm
+	res, err := client.Index().
+		Index(testIndexName).Id(doc.Id).
+		IfSeqNo(doc.SeqNo).
+		IfPrimaryTerm(doc.PrimaryTerm).
+		BodyJson(&tw).
+		Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response != nil")
+	}
+	if want, have := res.SeqNo, doc.SeqNo; want == have {
+		t.Fatalf("expected SeqNo to change (%d == %d)", want, have)
+	}
+}
+
+func TestIndexOnReadOnlyIndex(t *testing.T) {
+	client := setupTestClientAndCreateIndex(t)
+	//client := setupTestClientAndCreateIndexAndLog(t)
+
+	// Change index to read-only
+	{
+		_, err := client.IndexPutSettings(testIndexName).
+			BodyString(`{
+				"index": {
+					"blocks": {
+						"read_only_allow_delete": true
+					}
+				}
+			}`).Pretty(true).Do(context.Background())
+		if err != nil {
+			t.Fatalf("unable to set index into read-only mode: %v", err)
+		}
+	}
+
+	// Index something
+	tweet := tweet{User: "olivere", Message: "Welcome to Golang and Elasticsearch."}
+	resp, err := client.Index().
+		Index(testIndexName).Id("1").
+		BodyJson(tweet).
+		Pretty(true).
+		Do(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	elasticErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected an Error type, got %T", err)
+	}
+	if want, have := http.StatusTooManyRequests, elasticErr.Status; want != have {
+		t.Fatalf("expected HTTP status code %d, got %d", want, have)
+	}
+	if resp != nil {
+		t.Fatal("expected response to be nil")
 	}
 }

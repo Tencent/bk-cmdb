@@ -8,20 +8,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // XPackWatcherPutWatchService either registers a new watch in Watcher
 // or update an existing one.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/watcher-api-put-watch.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/watcher-api-put-watch.html.
 type XPackWatcherPutWatchService struct {
-	client        *Client
-	pretty        bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	id            string
 	active        *bool
 	masterTimeout string
+	ifSeqNo       *int64
+	ifPrimaryTerm *int64
 	body          interface{}
 }
 
@@ -30,6 +40,46 @@ func NewXPackWatcherPutWatchService(client *Client) *XPackWatcherPutWatchService
 	return &XPackWatcherPutWatchService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *XPackWatcherPutWatchService) Pretty(pretty bool) *XPackWatcherPutWatchService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *XPackWatcherPutWatchService) Human(human bool) *XPackWatcherPutWatchService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *XPackWatcherPutWatchService) ErrorTrace(errorTrace bool) *XPackWatcherPutWatchService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *XPackWatcherPutWatchService) FilterPath(filterPath ...string) *XPackWatcherPutWatchService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *XPackWatcherPutWatchService) Header(name string, value string) *XPackWatcherPutWatchService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *XPackWatcherPutWatchService) Headers(headers http.Header) *XPackWatcherPutWatchService {
+	s.headers = headers
+	return s
 }
 
 // Id of the watch to upsert.
@@ -50,9 +100,17 @@ func (s *XPackWatcherPutWatchService) MasterTimeout(masterTimeout string) *XPack
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *XPackWatcherPutWatchService) Pretty(pretty bool) *XPackWatcherPutWatchService {
-	s.pretty = pretty
+// IfSeqNo indicates to update the watch only if the last operation that
+// has changed the watch has the specified sequence number.
+func (s *XPackWatcherPutWatchService) IfSeqNo(seqNo int64) *XPackWatcherPutWatchService {
+	s.ifSeqNo = &seqNo
+	return s
+}
+
+// IfPrimaryTerm indicates to update the watch only if the last operation that
+// has changed the watch has the specified primary term.
+func (s *XPackWatcherPutWatchService) IfPrimaryTerm(primaryTerm int64) *XPackWatcherPutWatchService {
+	s.ifPrimaryTerm = &primaryTerm
 	return s
 }
 
@@ -65,7 +123,7 @@ func (s *XPackWatcherPutWatchService) Body(body interface{}) *XPackWatcherPutWat
 // buildURL builds the URL for the operation.
 func (s *XPackWatcherPutWatchService) buildURL() (string, url.Values, error) {
 	// Build URL
-	path, err := uritemplates.Expand("/_xpack/watcher/watch/{id}", map[string]string{
+	path, err := uritemplates.Expand("/_watcher/watch/{id}", map[string]string{
 		"id": s.id,
 	})
 	if err != nil {
@@ -74,14 +132,29 @@ func (s *XPackWatcherPutWatchService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
 	}
-	if s.active != nil {
-		params.Set("active", fmt.Sprintf("%v", *s.active))
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
+	}
+	if v := s.active; v != nil {
+		params.Set("active", fmt.Sprint(*v))
 	}
 	if s.masterTimeout != "" {
 		params.Set("master_timeout", s.masterTimeout)
+	}
+	if v := s.ifSeqNo; v != nil {
+		params.Set("if_seq_no", fmt.Sprintf("%d", *v))
+	}
+	if v := s.ifPrimaryTerm; v != nil {
+		params.Set("if_primary_term", fmt.Sprintf("%d", *v))
 	}
 	return path, params, nil
 }
@@ -116,10 +189,11 @@ func (s *XPackWatcherPutWatchService) Do(ctx context.Context) (*XPackWatcherPutW
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "PUT",
-		Path:   path,
-		Params: params,
-		Body:   s.body,
+		Method:  "PUT",
+		Path:    path,
+		Params:  params,
+		Body:    s.body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

@@ -33,10 +33,12 @@ type Generator struct {
 
 	varCounter int
 
-	noStdMarshalers       bool
-	omitEmpty             bool
-	disallowUnknownFields bool
-	fieldNamer            FieldNamer
+	noStdMarshalers          bool
+	omitEmpty                bool
+	disallowUnknownFields    bool
+	fieldNamer               FieldNamer
+	simpleBytes              bool
+	skipMemberNameUnescaping bool
 
 	// package path to local alias map for tracking imports
 	imports map[string]string
@@ -116,9 +118,19 @@ func (g *Generator) DisallowUnknownFields() {
 	g.disallowUnknownFields = true
 }
 
+// SkipMemberNameUnescaping instructs to skip member names unescaping to improve performance
+func (g *Generator) SkipMemberNameUnescaping() {
+	g.skipMemberNameUnescaping = true
+}
+
 // OmitEmpty triggers `json=",omitempty"` behaviour by default.
 func (g *Generator) OmitEmpty() {
 	g.omitEmpty = true
+}
+
+// SimpleBytes triggers generate output bytes as slice byte
+func (g *Generator) SimpleBytes() {
+	g.simpleBytes = true
 }
 
 // addTypes requests to generate encoding/decoding funcs for the given type.
@@ -156,8 +168,9 @@ func (g *Generator) printHeader() {
 	fmt.Println("package ", g.pkgName)
 	fmt.Println()
 
-	byAlias := map[string]string{}
-	var aliases []string
+	byAlias := make(map[string]string, len(g.imports))
+	aliases := make([]string, 0, len(g.imports))
+
 	for path, alias := range g.imports {
 		aliases = append(aliases, alias)
 		byAlias[alias] = path
@@ -388,9 +401,9 @@ func (DefaultFieldNamer) GetJSONFieldName(t reflect.Type, f reflect.StructField)
 	jsonName := strings.Split(f.Tag.Get("json"), ",")[0]
 	if jsonName != "" {
 		return jsonName
-	} else {
-		return f.Name
 	}
+
+	return f.Name
 }
 
 // LowerCamelCaseFieldNamer
@@ -454,9 +467,9 @@ func (LowerCamelCaseFieldNamer) GetJSONFieldName(t reflect.Type, f reflect.Struc
 	jsonName := strings.Split(f.Tag.Get("json"), ",")[0]
 	if jsonName != "" {
 		return jsonName
-	} else {
-		return lowerFirst(f.Name)
 	}
+
+	return lowerFirst(f.Name)
 }
 
 // SnakeCaseFieldNamer implements CamelCase to snake_case conversion for fields names.

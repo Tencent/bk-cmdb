@@ -42,7 +42,7 @@ func TestAppendString(t *testing.T) {
 
 	s := "test"
 	for i := 0; i < 1000; i++ {
-		b.AppendBytes([]byte(s))
+		b.AppendString(s)
 		want = append(want, s...)
 	}
 

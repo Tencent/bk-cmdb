@@ -1,10 +1,11 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http/httptest"
 	"reflect"
 	"testing"
-
-	"encoding/json"
 
 	"github.com/mailru/easyjson"
 	"github.com/mailru/easyjson/jwriter"
@@ -53,6 +54,11 @@ var testCases = []struct {
 	{&myUInt8SliceValue, myUInt8SliceString},
 	{&myUInt8ArrayValue, myUInt8ArrayString},
 	{&mapWithEncodingMarshaler, mapWithEncodingMarshalerString},
+	{&myGenDeclaredValue, myGenDeclaredString},
+	{&myGenDeclaredWithCommentValue, myGenDeclaredWithCommentString},
+	{&myTypeDeclaredValue, myTypeDeclaredString},
+	{&myTypeNotSkippedValue, myTypeNotSkippedString},
+	{&intern, internString},
 }
 
 func TestMarshal(t *testing.T) {
@@ -138,6 +144,7 @@ var testSpecialCases = []struct {
 	{`"绿\ufffd茶"`, "绿\xc5茶"},
 	{`"тест\u2028"`, "тест\xE2\x80\xA8"},
 	{`"\\\r\n\t\""`, "\\\r\n\t\""},
+	{`"text\\\""`, "text\\\""},
 	{`"ü"`, "ü"},
 }
 
@@ -224,6 +231,33 @@ func TestNestedEasyJsonMarshal(t *testing.T) {
 	}
 }
 
+func TestNestedMarshaler(t *testing.T) {
+	s := NestedMarshaler{
+		Value: &StructWithMarshaler{
+			Value: 5,
+		},
+		Value2: 10,
+	}
+
+	data, err := s.MarshalJSON()
+	if err != nil {
+		t.Errorf("Can't marshal NestedMarshaler: %s", err)
+	}
+
+	s2 := NestedMarshaler {
+		Value: &StructWithMarshaler{},
+	}
+
+	err = s2.UnmarshalJSON(data)
+	if err != nil {
+		t.Errorf("Can't unmarshal NestedMarshaler: %s", err)
+	}
+
+	if !reflect.DeepEqual(s2, s) {
+		t.Errorf("easyjson.Unmarshal() = %#v; want %#v", s2, s)
+	}
+}
+
 func TestUnmarshalStructWithEmbeddedPtrStruct(t *testing.T) {
 	var s = StructWithInterface{Field2: &EmbeddedStruct{}}
 	var err error
@@ -241,5 +275,57 @@ func TestDisallowUnknown(t *testing.T) {
 	err := easyjson.Unmarshal([]byte(disallowUnknownString), &d)
 	if err == nil {
 		t.Error("want error, got nil")
+	}
+}
+
+var testNotGeneratedTypeCases = []interface{}{
+	TypeNotDeclared{},
+	TypeSkipped{},
+}
+
+func TestMethodsNoGenerated(t *testing.T) {
+	var ok bool
+	for i, instance := range testNotGeneratedTypeCases {
+		_, ok = instance.(json.Marshaler)
+		if ok {
+			t.Errorf("[%d, %T] Unexpected MarshalJSON()", i, instance)
+		}
+
+		_, ok = instance.(json.Unmarshaler)
+		if ok {
+			t.Errorf("[%d, %T] Unexpected Unmarshaler()", i, instance)
+		}
+	}
+}
+
+func TestNil(t *testing.T) {
+	var p *PrimitiveTypes
+
+	data, err := easyjson.Marshal(p)
+	if err != nil {
+		t.Errorf("easyjson.Marshal() error: %v", err)
+	}
+	if string(data) != "null" {
+		t.Errorf("Wanted null, got %q", string(data))
+	}
+
+	var b bytes.Buffer
+	if n, err := easyjson.MarshalToWriter(p, &b); err != nil || n != 4 {
+		t.Errorf("easyjson.MarshalToWriter() error: %v, written %d", err, n)
+	}
+
+	if s := b.String(); s != "null" {
+		t.Errorf("Wanted null, got %q", s)
+	}
+
+	w := httptest.NewRecorder()
+	started, written, err := easyjson.MarshalToHTTPResponseWriter(p, w)
+	if !started || written != 4 || err != nil {
+		t.Errorf("easyjson.MarshalToHTTPResponseWriter() error: %v, written %d, started %t",
+			err, written, started)
+	}
+
+	if s := w.Body.String(); s != "null" {
+		t.Errorf("Wanted null, got %q", s)
 	}
 }

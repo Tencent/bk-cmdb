@@ -7,20 +7,26 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // ClusterStatsService is documented at
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/cluster-stats.html.
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/cluster-stats.html.
 type ClusterStatsService struct {
-	client       *Client
-	pretty       bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	nodeId       []string
 	flatSettings *bool
-	human        *bool
 }
 
 // NewClusterStatsService creates a new ClusterStatsService.
@@ -29,6 +35,46 @@ func NewClusterStatsService(client *Client) *ClusterStatsService {
 		client: client,
 		nodeId: make([]string, 0),
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *ClusterStatsService) Pretty(pretty bool) *ClusterStatsService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *ClusterStatsService) Human(human bool) *ClusterStatsService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *ClusterStatsService) ErrorTrace(errorTrace bool) *ClusterStatsService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *ClusterStatsService) FilterPath(filterPath ...string) *ClusterStatsService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *ClusterStatsService) Header(name string, value string) *ClusterStatsService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *ClusterStatsService) Headers(headers http.Header) *ClusterStatsService {
+	s.headers = headers
+	return s
 }
 
 // NodeId is documented as: A comma-separated list of node IDs or names to limit the returned information; use `_local` to return information from the node you're connecting to, leave empty to get information from all nodes.
@@ -40,18 +86,6 @@ func (s *ClusterStatsService) NodeId(nodeId []string) *ClusterStatsService {
 // FlatSettings is documented as: Return settings in flat format (default: false).
 func (s *ClusterStatsService) FlatSettings(flatSettings bool) *ClusterStatsService {
 	s.flatSettings = &flatSettings
-	return s
-}
-
-// Human is documented as: Whether to return time and byte values in human-readable format..
-func (s *ClusterStatsService) Human(human bool) *ClusterStatsService {
-	s.human = &human
-	return s
-}
-
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *ClusterStatsService) Pretty(pretty bool) *ClusterStatsService {
-	s.pretty = pretty
 	return s
 }
 
@@ -77,14 +111,20 @@ func (s *ClusterStatsService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.flatSettings != nil {
 		params.Set("flat_settings", fmt.Sprintf("%v", *s.flatSettings))
-	}
-	if s.human != nil {
-		params.Set("human", fmt.Sprintf("%v", *s.human))
 	}
 	return path, params, nil
 }
@@ -109,9 +149,10 @@ func (s *ClusterStatsService) Do(ctx context.Context) (*ClusterStatsResponse, er
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err
@@ -127,6 +168,7 @@ func (s *ClusterStatsService) Do(ctx context.Context) (*ClusterStatsResponse, er
 
 // ClusterStatsResponse is the response of ClusterStatsService.Do.
 type ClusterStatsResponse struct {
+	NodesStats  *ShardsInfo          `json:"_nodes,omitempty"`
 	Timestamp   int64                `json:"timestamp"`
 	ClusterName string               `json:"cluster_name"`
 	ClusterUUID string               `json:"cluster_uuid"`
@@ -143,7 +185,7 @@ type ClusterStatsIndices struct {
 	FieldData  *ClusterStatsIndicesFieldData  `json:"fielddata"`
 	QueryCache *ClusterStatsIndicesQueryCache `json:"query_cache"`
 	Completion *ClusterStatsIndicesCompletion `json:"completion"`
-	Segments   *ClusterStatsIndicesSegments   `json:"segments"`
+	Segments   *IndexStatsSegments            `json:"segments"`
 }
 
 type ClusterStatsIndicesShards struct {
@@ -211,29 +253,6 @@ type ClusterStatsIndicesCompletion struct {
 	} `json:"fields,omitempty"`
 }
 
-type ClusterStatsIndicesSegments struct {
-	Count                     int64                                       `json:"count"`
-	Memory                    string                                      `json:"memory"` // e.g. "61.3kb"
-	MemoryInBytes             int64                                       `json:"memory_in_bytes"`
-	TermsMemory               string                                      `json:"terms_memory"` // e.g. "61.3kb"
-	TermsMemoryInBytes        int64                                       `json:"terms_memory_in_bytes"`
-	StoredFieldsMemory        string                                      `json:"stored_fields_memory"` // e.g. "61.3kb"
-	StoredFieldsMemoryInBytes int64                                       `json:"stored_fields_memory_in_bytes"`
-	NormsMemory               string                                      `json:"norms_memory"` // e.g. "61.3kb"
-	NormsMemoryInBytes        int64                                       `json:"norms_memory_in_bytes"`
-	PointsMemory              string                                      `json:"points_memory"` // e.g. "61.3kb"
-	PointsMemoryInBytes       int64                                       `json:"points_memory_in_bytes"`
-	DocValuesMemory           string                                      `json:"doc_values_memory"` // e.g. "61.3kb"
-	DocValuesMemoryInBytes    int64                                       `json:"doc_values_memory_in_bytes"`
-	IndexWriterMemory         string                                      `json:"index_writer_memory"` // e.g. "61.3kb"
-	IndexWriterMemoryInBytes  int64                                       `json:"index_writer_memory_in_bytes"`
-	VersionMapMemory          string                                      `json:"version_map_memory"` // e.g. "61.3kb"
-	VersionMapMemoryInBytes   int64                                       `json:"version_map_memory_in_bytes"`
-	FixedBitSet               string                                      `json:"fixed_bit_set"` // e.g. "61.3kb"
-	FixedBitSetInBytes        int64                                       `json:"fixed_bit_set_memory_in_bytes"`
-	FileSizes                 map[string]*ClusterStatsIndicesSegmentsFile `json:"file_sizes"`
-}
-
 type ClusterStatsIndicesSegmentsFile struct {
 	Size        string `json:"size"` // e.g. "61.3kb"
 	SizeInBytes int64  `json:"size_in_bytes"`
@@ -250,6 +269,10 @@ type ClusterStatsNodes struct {
 	JVM      *ClusterStatsNodesJvmStats     `json:"jvm"`
 	FS       *ClusterStatsNodesFsStats      `json:"fs"`
 	Plugins  []*ClusterStatsNodesPlugin     `json:"plugins"`
+
+	NetworkTypes   *ClusterStatsNodesNetworkTypes   `json:"network_types"`
+	DiscoveryTypes *ClusterStatsNodesDiscoveryTypes `json:"discovery_types"`
+	PackagingTypes *ClusterStatsNodesPackagingTypes `json:"packaging_types"`
 }
 
 type ClusterStatsNodesCount struct {
@@ -261,14 +284,29 @@ type ClusterStatsNodesCount struct {
 }
 
 type ClusterStatsNodesOsStats struct {
-	AvailableProcessors int                            `json:"available_processors"`
-	Mem                 *ClusterStatsNodesOsStatsMem   `json:"mem"`
-	CPU                 []*ClusterStatsNodesOsStatsCPU `json:"cpu"`
+	AvailableProcessors int `json:"available_processors"`
+	AllocatedProcessors int `json:"allocated_processors"`
+	Names               []struct {
+		Name  string `json:"name"`
+		Value int    `json:"count"`
+	} `json:"names"`
+	PrettyNames []struct {
+		PrettyName string `json:"pretty_name"`
+		Value      int    `json:"count"`
+	} `json:"pretty_names"`
+	Mem *ClusterStatsNodesOsStatsMem `json:"mem"`
+	// CPU []*ClusterStatsNodesOsStatsCPU `json:"cpu"`
 }
 
 type ClusterStatsNodesOsStatsMem struct {
 	Total        string `json:"total"` // e.g. "16gb"
 	TotalInBytes int64  `json:"total_in_bytes"`
+	Free         string `json:"free"` // e.g. "12gb"
+	FreeInBytes  int64  `json:"free_in_bytes"`
+	Used         string `json:"used"` // e.g. "4gb"
+	UsedInBytes  int64  `json:"used_in_bytes"`
+	FreePercent  int    `json:"free_percent"`
+	UsedPercent  int    `json:"used_percent"`
 }
 
 type ClusterStatsNodesOsStatsCPU struct {
@@ -307,11 +345,13 @@ type ClusterStatsNodesJvmStats struct {
 }
 
 type ClusterStatsNodesJvmStatsVersion struct {
-	Version   string `json:"version"`    // e.g. "1.8.0_45"
-	VMName    string `json:"vm_name"`    // e.g. "Java HotSpot(TM) 64-Bit Server VM"
-	VMVersion string `json:"vm_version"` // e.g. "25.45-b02"
-	VMVendor  string `json:"vm_vendor"`  // e.g. "Oracle Corporation"
-	Count     int    `json:"count"`
+	Version         string `json:"version"`    // e.g. "1.8.0_45"
+	VMName          string `json:"vm_name"`    // e.g. "Java HotSpot(TM) 64-Bit Server VM"
+	VMVersion       string `json:"vm_version"` // e.g. "25.45-b02"
+	VMVendor        string `json:"vm_vendor"`  // e.g. "Oracle Corporation"
+	BundledJDK      bool   `json:"bundled_jdk"`
+	UsingBundledJDK bool   `json:"using_bundled_jdk"`
+	Count           int    `json:"count"`
 }
 
 type ClusterStatsNodesJvmStatsMem struct {
@@ -351,4 +391,19 @@ type ClusterStatsNodesPlugin struct {
 	URL         string `json:"url"`
 	JVM         bool   `json:"jvm"`
 	Site        bool   `json:"site"`
+}
+
+type ClusterStatsNodesNetworkTypes struct {
+	TransportTypes map[string]interface{} `json:"transport_types"` // e.g. "netty4": 1
+	HTTPTypes      map[string]interface{} `json:"http_types"`      // e.g. "netty4": 1
+}
+
+type ClusterStatsNodesDiscoveryTypes interface{}
+
+type ClusterStatsNodesPackagingTypes []*ClusterStatsNodesPackagingType
+
+type ClusterStatsNodesPackagingType struct {
+	Flavor string `json:"flavor"` // e.g. "oss"
+	Type   string `json:"type"`   // e.g. "docker"
+	Count  int    `json:"count"`  // e.g. 1
 }

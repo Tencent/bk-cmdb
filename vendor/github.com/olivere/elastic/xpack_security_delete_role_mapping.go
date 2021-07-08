@@ -8,17 +8,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // XPackSecurityDeleteRoleMappingService delete a role mapping by its name.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/security-api-delete-role-mapping.html.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/security-api-delete-role-mapping.html.
 type XPackSecurityDeleteRoleMappingService struct {
 	client *Client
-	pretty bool
-	name   string
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
+	name string
 }
 
 // NewXPackSecurityDeleteRoleMappingService creates a new XPackSecurityDeleteRoleMappingService.
@@ -28,22 +36,56 @@ func NewXPackSecurityDeleteRoleMappingService(client *Client) *XPackSecurityDele
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *XPackSecurityDeleteRoleMappingService) Pretty(pretty bool) *XPackSecurityDeleteRoleMappingService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *XPackSecurityDeleteRoleMappingService) Human(human bool) *XPackSecurityDeleteRoleMappingService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *XPackSecurityDeleteRoleMappingService) ErrorTrace(errorTrace bool) *XPackSecurityDeleteRoleMappingService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *XPackSecurityDeleteRoleMappingService) FilterPath(filterPath ...string) *XPackSecurityDeleteRoleMappingService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *XPackSecurityDeleteRoleMappingService) Header(name string, value string) *XPackSecurityDeleteRoleMappingService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *XPackSecurityDeleteRoleMappingService) Headers(headers http.Header) *XPackSecurityDeleteRoleMappingService {
+	s.headers = headers
+	return s
+}
+
 // Name is name of the role mapping to delete.
 func (s *XPackSecurityDeleteRoleMappingService) Name(name string) *XPackSecurityDeleteRoleMappingService {
 	s.name = name
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *XPackSecurityDeleteRoleMappingService) Pretty(pretty bool) *XPackSecurityDeleteRoleMappingService {
-	s.pretty = pretty
-	return s
-}
-
 // buildURL builds the URL for the operation.
 func (s *XPackSecurityDeleteRoleMappingService) buildURL() (string, url.Values, error) {
 	// Build URL
-	path, err := uritemplates.Expand("/_xpack/security/role_mapping/{name}", map[string]string{
+	path, err := uritemplates.Expand("/_security/role_mapping/{name}", map[string]string{
 		"name": s.name,
 	})
 	if err != nil {
@@ -52,8 +94,17 @@ func (s *XPackSecurityDeleteRoleMappingService) buildURL() (string, url.Values, 
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	return path, params, nil
 }
@@ -85,9 +136,10 @@ func (s *XPackSecurityDeleteRoleMappingService) Do(ctx context.Context) (*XPackS
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "DELETE",
-		Path:   path,
-		Params: params,
+		Method:  "DELETE",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

@@ -8,20 +8,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // GetService allows to get a typed JSON document from the index based
 // on its id.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-get.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-get.html
 // for details.
 type GetService struct {
-	client                        *Client
-	pretty                        bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	index                         string
 	typ                           string
 	id                            string
@@ -41,8 +48,48 @@ type GetService struct {
 func NewGetService(client *Client) *GetService {
 	return &GetService{
 		client: client,
-		typ:    "_all",
+		typ:    "_doc",
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *GetService) Pretty(pretty bool) *GetService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *GetService) Human(human bool) *GetService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *GetService) ErrorTrace(errorTrace bool) *GetService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *GetService) FilterPath(filterPath ...string) *GetService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *GetService) Header(name string, value string) *GetService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *GetService) Headers(headers http.Header) *GetService {
+	s.headers = headers
+	return s
 }
 
 // Index is the name of the index.
@@ -51,8 +98,9 @@ func (s *GetService) Index(index string) *GetService {
 	return s
 }
 
-// Type is the type of the document (use `_all` to fetch the first document
-// matching the ID across all types).
+// Type is the type of the document
+//
+// Deprecated: Types are in the process of being removed.
 func (s *GetService) Type(typ string) *GetService {
 	s.typ = typ
 	return s
@@ -104,7 +152,7 @@ func (s *GetService) FetchSourceContext(fetchSourceContext *FetchSourceContext) 
 
 // Refresh the shard containing the document before performing the operation.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-refresh.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-refresh.html
 // for details.
 func (s *GetService) Refresh(refresh string) *GetService {
 	s.refresh = refresh
@@ -133,12 +181,6 @@ func (s *GetService) Version(version interface{}) *GetService {
 // are generated if the transaction log is accessed.
 func (s *GetService) IgnoreErrorsOnGeneratedFields(ignore bool) *GetService {
 	s.ignoreErrorsOnGeneratedFields = &ignore
-	return s
-}
-
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *GetService) Pretty(pretty bool) *GetService {
-	s.pretty = pretty
 	return s
 }
 
@@ -174,8 +216,17 @@ func (s *GetService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.routing != "" {
 		params.Set("routing", s.routing)
@@ -227,9 +278,10 @@ func (s *GetService) Do(ctx context.Context) (*GetResult, error) {
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "GET",
-		Path:   path,
-		Params: params,
+		Method:  "GET",
+		Path:    path,
+		Params:  params,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err
@@ -247,16 +299,18 @@ func (s *GetService) Do(ctx context.Context) (*GetResult, error) {
 
 // GetResult is the outcome of GetService.Do.
 type GetResult struct {
-	Index   string                 `json:"_index"`   // index meta field
-	Type    string                 `json:"_type"`    // type meta field
-	Id      string                 `json:"_id"`      // id meta field
-	Uid     string                 `json:"_uid"`     // uid meta field (see MapperService.java for all meta fields)
-	Routing string                 `json:"_routing"` // routing meta field
-	Parent  string                 `json:"_parent"`  // parent meta field
-	Version *int64                 `json:"_version"` // version number, when Version is set to true in SearchService
-	Source  *json.RawMessage       `json:"_source,omitempty"`
-	Found   bool                   `json:"found,omitempty"`
-	Fields  map[string]interface{} `json:"fields,omitempty"`
+	Index       string                 `json:"_index"`   // index meta field
+	Type        string                 `json:"_type"`    // type meta field
+	Id          string                 `json:"_id"`      // id meta field
+	Uid         string                 `json:"_uid"`     // uid meta field (see MapperService.java for all meta fields)
+	Routing     string                 `json:"_routing"` // routing meta field
+	Parent      string                 `json:"_parent"`  // parent meta field
+	Version     *int64                 `json:"_version"` // version number, when Version is set to true in SearchService
+	SeqNo       *int64                 `json:"_seq_no"`
+	PrimaryTerm *int64                 `json:"_primary_term"`
+	Source      json.RawMessage        `json:"_source,omitempty"`
+	Found       bool                   `json:"found,omitempty"`
+	Fields      map[string]interface{} `json:"fields,omitempty"`
 	//Error     string                 `json:"error,omitempty"` // used only in MultiGet
 	// TODO double-check that MultiGet now returns details error information
 	Error *ErrorDetails `json:"error,omitempty"` // only used in MultiGet

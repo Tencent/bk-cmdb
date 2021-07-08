@@ -6,7 +6,7 @@ package elastic
 
 // Highlight allows highlighting search results on one or more fields.
 // For details, see:
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-highlighting.html
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-highlighting.html
 type Highlight struct {
 	fields                []*HighlighterField
 	tagsSchema            *string
@@ -238,7 +238,7 @@ func (hl *Highlight) Source() (interface{}, error) {
 			source["fields"] = fields
 		} else {
 			// Use a map for the fields
-			fields := make(map[string]interface{}, 0)
+			fields := make(map[string]interface{})
 			for _, field := range hl.fields {
 				src, err := field.Source()
 				if err != nil {

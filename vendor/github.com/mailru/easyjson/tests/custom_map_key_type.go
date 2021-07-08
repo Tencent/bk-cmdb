@@ -22,7 +22,7 @@ var customMapKeyTypeValue CustomMapKeyType
 
 func init() {
 	customMapKeyTypeValue.Map = map[customKeyType]int{
-		customKeyType{0x01, 0x02}: 3,
+		{0x01, 0x02}: 3,
 	}
 }
 

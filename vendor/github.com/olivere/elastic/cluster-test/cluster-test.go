@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/olivere/elastic"
+	"github.com/olivere/elastic/v7"
 )
 
 type Tweet struct {
@@ -328,7 +328,7 @@ func (t *TestCase) search() {
 		//fmt.Printf("Query took %d milliseconds\n", searchResult.TookInMillis)
 
 		// Number of hits
-		if searchResult.Hits.TotalHits > 0 {
+		if searchResult.Hits.TotalHits.Value > 0 {
 			//fmt.Printf("Found a total of %d tweets\n", searchResult.Hits.TotalHits)
 
 			// Iterate through results
@@ -337,7 +337,7 @@ func (t *TestCase) search() {
 
 				// Deserialize hit.Source into a Tweet (could also be just a map[string]interface{}).
 				var tweet Tweet
-				err := json.Unmarshal(*hit.Source, &tweet)
+				err := json.Unmarshal(hit.Source, &tweet)
 				if err != nil {
 					// Deserialization failed
 					//failf("Deserialize failed: %v\n", err)

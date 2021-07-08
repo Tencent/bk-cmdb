@@ -6,7 +6,7 @@ package elastic
 
 // TermSuggester suggests terms based on edit distance.
 // For more details, see
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-suggesters-term.html.
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-suggesters-term.html.
 type TermSuggester struct {
 	Suggester
 	name           string
@@ -217,7 +217,7 @@ func (q *TermSuggester) Source(includeName bool) (interface{}, error) {
 		suggester["prefix_length"] = *q.prefixLength
 	}
 	if q.minWordLength != nil {
-		suggester["min_word_len"] = *q.minWordLength
+		suggester["min_word_length"] = *q.minWordLength
 	}
 	if q.minDocFreq != nil {
 		suggester["min_doc_freq"] = *q.minDocFreq

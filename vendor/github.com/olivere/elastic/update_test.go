@@ -16,7 +16,7 @@ func TestUpdateViaScript(t *testing.T) {
 
 	update := client.Update().
 		Index("test").Type("type1").Id("1").
-		Script(NewScript("ctx._source.tags += tag").Params(map[string]interface{}{"tag": "blue"}).Lang("groovy"))
+		Script(NewScript("ctx._source.tags += params.tag").Params(map[string]interface{}{"tag": "blue"}).Lang("groovy"))
 	path, params, err := update.url()
 	if err != nil {
 		t.Fatalf("expected to return URL, got: %v", err)
@@ -38,7 +38,7 @@ func TestUpdateViaScript(t *testing.T) {
 		t.Fatalf("expected to marshal body as JSON, got: %v", err)
 	}
 	got := string(data)
-	expected := `{"script":{"lang":"groovy","params":{"tag":"blue"},"source":"ctx._source.tags += tag"}}`
+	expected := `{"script":{"lang":"groovy","params":{"tag":"blue"},"source":"ctx._source.tags += params.tag"}}`
 	if got != expected {
 		t.Errorf("expected\n%s\ngot:\n%s", expected, got)
 	}
@@ -93,7 +93,7 @@ func TestUpdateViaScriptAndUpsert(t *testing.T) {
 
 	update := client.Update().
 		Index("test").Type("type1").Id("1").
-		Script(NewScript("ctx._source.counter += count").Params(map[string]interface{}{"count": 4})).
+		Script(NewScript("ctx._source.counter += params.count").Params(map[string]interface{}{"count": 4})).
 		Upsert(map[string]interface{}{"counter": 1})
 	path, params, err := update.url()
 	if err != nil {
@@ -116,7 +116,7 @@ func TestUpdateViaScriptAndUpsert(t *testing.T) {
 		t.Fatalf("expected to marshal body as JSON, got: %v", err)
 	}
 	got := string(data)
-	expected := `{"script":{"params":{"count":4},"source":"ctx._source.counter += count"},"upsert":{"counter":1}}`
+	expected := `{"script":{"params":{"count":4},"source":"ctx._source.counter += params.count"},"upsert":{"counter":1}}`
 	if got != expected {
 		t.Errorf("expected\n%s\ngot:\n%s", expected, got)
 	}
@@ -236,7 +236,7 @@ func TestUpdateAndFetchSource(t *testing.T) {
 	client := setupTestClientAndCreateIndexAndAddDocs(t) // , SetTraceLog(log.New(os.Stdout, "", 0)))
 
 	res, err := client.Update().
-		Index(testIndexName).Type("doc").Id("1").
+		Index(testIndexName).Id("1").
 		Doc(map[string]interface{}{"user": "sandrae"}).
 		DetectNoop(true).
 		FetchSource(true).
@@ -255,7 +255,65 @@ func TestUpdateAndFetchSource(t *testing.T) {
 		t.Fatalf("expected to marshal body as JSON, got: %v", err)
 	}
 	got := string(data)
-	expected := `{"user":"sandrae","message":"Welcome to Golang and Elasticsearch.","retweets":0,"created":"0001-01-01T00:00:00Z"}`
+	expected := `{"user":"sandrae","message":"Welcome to Golang and Elasticsearch.","retweets":108,"created":"0001-01-01T00:00:00Z","tags":["golang","elasticsearch"]}`
+	if got != expected {
+		t.Errorf("expected\n%s\ngot:\n%s", expected, got)
+	}
+}
+
+func TestUpdateOptimistic(t *testing.T) {
+	client := setupTestClientAndCreateIndexAndAddDocs(t) //, SetTraceLog(log.New(os.Stdout, "", 0)))
+
+	doc, err := client.Get().
+		Index(testIndexName).Id("1").
+		Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.SeqNo == nil {
+		t.Fatal("expected seq_no != nil")
+	}
+	if doc.PrimaryTerm == nil {
+		t.Fatal("expected primary_term != nil")
+	}
+
+	// Update with seqNo != doc.SeqNo and primaryTerm != doc.PrimaryTerm
+	_, err = client.Update().
+		Index(testIndexName).Id(doc.Id).
+		Doc(map[string]interface{}{"user": "sandrae"}).
+		IfSeqNo(*doc.SeqNo + 1000).
+		IfPrimaryTerm(*doc.PrimaryTerm + 1000).
+		Do(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsConflict(err) {
+		t.Fatalf("expected conflict error, got %v (%T)", err, err)
+	}
+
+	// Update with seqNo == doc.SeqNo and primaryTerm == doc.PrimaryTerm
+	res, err := client.Update().
+		Index(testIndexName).Id(doc.Id).
+		Doc(map[string]interface{}{"user": "sandrae"}).
+		IfSeqNo(*doc.SeqNo).
+		IfPrimaryTerm(*doc.PrimaryTerm).
+		FetchSource(true).
+		Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("expected response != nil")
+	}
+	if res.GetResult == nil {
+		t.Fatal("expected GetResult != nil")
+	}
+	data, err := json.Marshal(res.GetResult.Source)
+	if err != nil {
+		t.Fatalf("expected to marshal body as JSON, got: %v", err)
+	}
+	got := string(data)
+	expected := `{"user":"sandrae","message":"Welcome to Golang and Elasticsearch.","retweets":108,"created":"0001-01-01T00:00:00Z","tags":["golang","elasticsearch"]}`
 	if got != expected {
 		t.Errorf("expected\n%s\ngot:\n%s", expected, got)
 	}

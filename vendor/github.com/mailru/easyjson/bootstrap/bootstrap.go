@@ -7,10 +7,12 @@ package bootstrap
 
 import (
 	"fmt"
+	"go/format"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 )
 
@@ -18,22 +20,27 @@ const genPackage = "github.com/mailru/easyjson/gen"
 const pkgWriter = "github.com/mailru/easyjson/jwriter"
 const pkgLexer = "github.com/mailru/easyjson/jlexer"
 
+var buildFlagsRegexp = regexp.MustCompile("'.+'|\".+\"|\\S+")
+
 type Generator struct {
 	PkgPath, PkgName string
 	Types            []string
 
-	NoStdMarshalers       bool
-	SnakeCase             bool
-	LowerCamelCase        bool
-	OmitEmpty             bool
-	DisallowUnknownFields bool
+	NoStdMarshalers          bool
+	SnakeCase                bool
+	LowerCamelCase           bool
+	OmitEmpty                bool
+	DisallowUnknownFields    bool
+	SkipMemberNameUnescaping bool
 
-	OutName   string
-	BuildTags string
+	OutName       string
+	BuildTags     string
+	GenBuildFlags string
 
-	StubsOnly  bool
-	LeaveTemps bool
-	NoFormat   bool
+	StubsOnly   bool
+	LeaveTemps  bool
+	NoFormat    bool
+	SimpleBytes bool
 }
 
 // writeStub outputs an initial stub for marshalers/unmarshalers so that the package
@@ -124,6 +131,12 @@ func (g *Generator) writeMain() (path string, err error) {
 	if g.DisallowUnknownFields {
 		fmt.Fprintln(f, "  g.DisallowUnknownFields()")
 	}
+	if g.SimpleBytes {
+		fmt.Fprintln(f, "  g.SimpleBytes()")
+	}
+	if g.SkipMemberNameUnescaping {
+		fmt.Fprintln(f, "  g.SkipMemberNameUnescaping()")
+	}
 
 	sort.Strings(g.Types)
 	for _, v := range g.Types {
@@ -169,25 +182,35 @@ func (g *Generator) Run() error {
 		defer os.Remove(f.Name()) // will not remove after rename
 	}
 
-	cmd := exec.Command("go", "run", "-tags", g.BuildTags, filepath.Base(path))
+	execArgs := []string{"run"}
+	if g.GenBuildFlags != "" {
+		buildFlags := buildFlagsRegexp.FindAllString(g.GenBuildFlags, -1)
+		execArgs = append(execArgs, buildFlags...)
+	}
+	execArgs = append(execArgs, "-tags", g.BuildTags, filepath.Base(path))
+	cmd := exec.Command("go", execArgs...)
+
 	cmd.Stdout = f
 	cmd.Stderr = os.Stderr
 	cmd.Dir = filepath.Dir(path)
 	if err = cmd.Run(); err != nil {
 		return err
 	}
-
 	f.Close()
 
-	if !g.NoFormat {
-		cmd = exec.Command("gofmt", "-w", f.Name())
-		cmd.Stderr = os.Stderr
-		cmd.Stdout = os.Stdout
-
-		if err = cmd.Run(); err != nil {
-			return err
-		}
+	// move unformatted file to out path
+	if g.NoFormat {
+		return os.Rename(f.Name(), g.OutName)
 	}
 
-	return os.Rename(f.Name(), g.OutName)
+	// format file and write to out path
+	in, err := ioutil.ReadFile(f.Name())
+	if err != nil {
+		return err
+	}
+	out, err := format.Source(in)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(g.OutName, out, 0644)
 }

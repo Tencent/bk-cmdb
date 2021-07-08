@@ -7,18 +7,25 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // CountService is a convenient service for determining the
 // number of documents in an index. Use SearchService with
 // a SearchType of count for counting with queries etc.
 type CountService struct {
-	client                 *Client
-	pretty                 bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	index                  []string
 	typ                    []string
 	allowNoIndices         *bool
@@ -28,6 +35,7 @@ type CountService struct {
 	df                     string
 	expandWildcards        string
 	ignoreUnavailable      *bool
+	ignoreThrottled        *bool
 	lenient                *bool
 	lowercaseExpandedTerms *bool
 	minScore               interface{}
@@ -47,6 +55,46 @@ func NewCountService(client *Client) *CountService {
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *CountService) Pretty(pretty bool) *CountService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *CountService) Human(human bool) *CountService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *CountService) ErrorTrace(errorTrace bool) *CountService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *CountService) FilterPath(filterPath ...string) *CountService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *CountService) Header(name string, value string) *CountService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *CountService) Headers(headers http.Header) *CountService {
+	s.headers = headers
+	return s
+}
+
 // Index sets the names of the indices to restrict the results.
 func (s *CountService) Index(index ...string) *CountService {
 	if s.index == nil {
@@ -57,6 +105,9 @@ func (s *CountService) Index(index ...string) *CountService {
 }
 
 // Type sets the types to use to restrict the results.
+//
+// Deprecated: Types are in the process of being removed. Instead of using a type, prefer to
+// filter on a field on the document.
 func (s *CountService) Type(typ ...string) *CountService {
 	if s.typ == nil {
 		s.typ = make([]string, 0)
@@ -113,6 +164,13 @@ func (s *CountService) IgnoreUnavailable(ignoreUnavailable bool) *CountService {
 	return s
 }
 
+// IgnoreThrottled indicates whether specified concrete, expanded or aliased
+// indices should be ignored when throttled.
+func (s *CountService) IgnoreThrottled(ignoreThrottled bool) *CountService {
+	s.ignoreThrottled = &ignoreThrottled
+	return s
+}
+
 // Lenient specifies whether format-based query failures (such as
 // providing text to a numeric field) should be ignored.
 func (s *CountService) Lenient(lenient bool) *CountService {
@@ -166,12 +224,6 @@ func (s *CountService) TerminateAfter(terminateAfter int) *CountService {
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *CountService) Pretty(pretty bool) *CountService {
-	s.pretty = pretty
-	return s
-}
-
 // BodyJson specifies the query to restrict the results specified with the
 // Query DSL (optional). The interface{} will be serialized to a JSON document,
 // so use a map[string]interface{}.
@@ -214,8 +266,17 @@ func (s *CountService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.allowNoIndices != nil {
 		params.Set("allow_no_indices", fmt.Sprintf("%v", *s.allowNoIndices))
@@ -237,6 +298,9 @@ func (s *CountService) buildURL() (string, url.Values, error) {
 	}
 	if s.ignoreUnavailable != nil {
 		params.Set("ignore_unavailable", fmt.Sprintf("%v", *s.ignoreUnavailable))
+	}
+	if s.ignoreThrottled != nil {
+		params.Set("ignore_throttled", fmt.Sprintf("%v", *s.ignoreThrottled))
 	}
 	if s.lenient != nil {
 		params.Set("lenient", fmt.Sprintf("%v", *s.lenient))
@@ -298,10 +362,11 @@ func (s *CountService) Do(ctx context.Context) (int64, error) {
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "POST",
-		Path:   path,
-		Params: params,
-		Body:   body,
+		Method:  "POST",
+		Path:    path,
+		Params:  params,
+		Body:    body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return 0, err
@@ -321,6 +386,7 @@ func (s *CountService) Do(ctx context.Context) (int64, error) {
 
 // CountResponse is the response of using the Count API.
 type CountResponse struct {
-	Count  int64       `json:"count"`
-	Shards *ShardsInfo `json:"_shards,omitempty"`
+	Count           int64       `json:"count"`
+	TerminatedEarly bool        `json:"terminated_early,omitempty"`
+	Shards          *ShardsInfo `json:"_shards,omitempty"`
 }

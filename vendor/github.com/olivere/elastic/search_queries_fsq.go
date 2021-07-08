@@ -10,7 +10,7 @@ package elastic
 // to compute the score on a filtered set of documents.
 //
 // For more details, see
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/query-dsl-function-score-query.html
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/query-dsl-function-score-query.html
 type FunctionScoreQuery struct {
 	query      Query
 	filter     Query
@@ -21,7 +21,6 @@ type FunctionScoreQuery struct {
 	filters    []Query
 	scoreFuncs []ScoreFunction
 	minScore   *float64
-	weight     *float64
 }
 
 // NewFunctionScoreQuery creates and initializes a new function score query.

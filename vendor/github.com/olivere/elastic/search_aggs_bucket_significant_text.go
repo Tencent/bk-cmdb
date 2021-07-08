@@ -6,7 +6,7 @@ package elastic
 
 // SignificantTextAggregation returns interesting or unusual occurrences
 // of free-text terms in a set.
-// See: https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-aggregations-bucket-significanttext-aggregation.html
+// See: https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-aggregations-bucket-significanttext-aggregation.html
 type SignificantTextAggregation struct {
 	field           string
 	subAggregations map[string]Aggregation
@@ -22,7 +22,7 @@ type SignificantTextAggregation struct {
 
 func NewSignificantTextAggregation() *SignificantTextAggregation {
 	return &SignificantTextAggregation{
-		subAggregations: make(map[string]Aggregation, 0),
+		subAggregations: make(map[string]Aggregation),
 	}
 }
 
@@ -139,6 +139,11 @@ func (a *SignificantTextAggregation) NumPartitions(n int) *SignificantTextAggreg
 		a.includeExclude = &TermsAggregationIncludeExclude{}
 	}
 	a.includeExclude.NumPartitions = n
+	return a
+}
+
+func (a *SignificantTextAggregation) IncludeExclude(includeExclude *TermsAggregationIncludeExclude) *SignificantTextAggregation {
+	a.includeExclude = includeExclude
 	return a
 }
 

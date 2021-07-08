@@ -13,7 +13,7 @@ import "errors"
 // how the terms should be selected and how the query is formed.
 //
 // For more details, see
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/query-dsl-mlt-query.html
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/query-dsl-mlt-query.html
 type MoreLikeThisQuery struct {
 	fields                 []string
 	docs                   []*MoreLikeThisQueryItem
@@ -320,6 +320,8 @@ func (item *MoreLikeThisQueryItem) Index(index string) *MoreLikeThisQueryItem {
 }
 
 // Type represents the document type of the item.
+//
+// Deprecated: Types are in the process of being removed.
 func (item *MoreLikeThisQueryItem) Type(typ string) *MoreLikeThisQueryItem {
 	item.typ = typ
 	return item
@@ -392,7 +394,7 @@ func (item *MoreLikeThisQueryItem) Source() (interface{}, error) {
 		source["fields"] = item.fields
 	}
 	if item.routing != "" {
-		source["_routing"] = item.routing
+		source["routing"] = item.routing
 	}
 	if item.fsc != nil {
 		src, err := item.fsc.Source()

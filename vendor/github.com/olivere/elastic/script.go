@@ -14,7 +14,7 @@ import (
 // Script holds all the parameters necessary to compile or find in cache
 // and then execute a script.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/modules-scripting.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/modules-scripting.html
 // for details of scripting.
 type Script struct {
 	script string
@@ -60,7 +60,7 @@ func (s *Script) Type(typ string) *Script {
 
 // Lang sets the language of the script. The default scripting language
 // is Painless ("painless").
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/modules-scripting.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/modules-scripting.html
 // for details.
 func (s *Script) Lang(lang string) *Script {
 	s.lang = lang
@@ -126,12 +126,20 @@ func (s *Script) rawScriptSource(script string) (interface{}, error) {
 type ScriptField struct {
 	FieldName string // name of the field
 
-	script *Script
+	script        *Script
+	ignoreFailure *bool // used in e.g. ScriptSource
 }
 
 // NewScriptField creates and initializes a new ScriptField.
 func NewScriptField(fieldName string, script *Script) *ScriptField {
 	return &ScriptField{FieldName: fieldName, script: script}
+}
+
+// IgnoreFailure indicates whether to ignore failures. It is used
+// in e.g. ScriptSource.
+func (f *ScriptField) IgnoreFailure(ignore bool) *ScriptField {
+	f.ignoreFailure = &ignore
+	return f
 }
 
 // Source returns the serializable JSON for the ScriptField.
@@ -145,5 +153,8 @@ func (f *ScriptField) Source() (interface{}, error) {
 		return nil, err
 	}
 	source["script"] = src
+	if v := f.ignoreFailure; v != nil {
+		source["ignore_failure"] = *v
+	}
 	return source, nil
 }

@@ -84,27 +84,35 @@ func TestIngestLifecycle(t *testing.T) {
 	}
 
 	// Get all pipelines again
-	getres, err := client.IngestGetPipeline().Do(context.TODO())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if have := len(getres); have == 0 {
-		t.Fatalf("expected at least 1 pipeline, got %d", have)
-	}
-	if _, found := getres["my-pipeline"]; !found {
-		t.Fatalf("expected to find pipline with id %q", "my-pipeline")
+	{
+		getres, err := client.IngestGetPipeline().Do(context.TODO())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if have := len(getres); have == 0 {
+			t.Fatalf("expected at least 1 pipeline, got %d", have)
+		}
+		pipeline, found := getres["my-pipeline"]
+		if !found {
+			t.Fatalf("expected to find pipline with id %q", "my-pipeline")
+		}
+		if want, have := "reset retweets", pipeline.Description; want != have {
+			t.Fatalf("expected pipeline description of %q, have %q", want, have)
+		}
 	}
 
 	// Get pipeline by ID
-	getres, err = client.IngestGetPipeline("my-pipeline").Do(context.TODO())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want, have := 1, len(getres); want != have {
-		t.Fatalf("expected %d pipelines, got %d", want, have)
-	}
-	if _, found := getres["my-pipeline"]; !found {
-		t.Fatalf("expected to find pipline with id %q", "my-pipeline")
+	{
+		getres, err := client.IngestGetPipeline("my-pipeline").Do(context.TODO())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, have := 1, len(getres); want != have {
+			t.Fatalf("expected %d pipelines, got %d", want, have)
+		}
+		if _, found := getres["my-pipeline"]; !found {
+			t.Fatalf("expected to find pipline with id %q", "my-pipeline")
+		}
 	}
 
 	// Delete pipeline

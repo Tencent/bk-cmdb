@@ -10,13 +10,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // ReindexService is a method to copy documents from one index to another.
-// It is documented at https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-reindex.html.
+// It is documented at https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-reindex.html.
 type ReindexService struct {
-	client              *Client
-	pretty              bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	refresh             string
 	timeout             string
 	waitForActiveShards string
@@ -29,7 +36,6 @@ type ReindexService struct {
 	conflicts           string
 	size                *int
 	script              *Script
-	headers             http.Header
 }
 
 // NewReindexService creates a new ReindexService.
@@ -37,6 +43,46 @@ func NewReindexService(client *Client) *ReindexService {
 	return &ReindexService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *ReindexService) Pretty(pretty bool) *ReindexService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *ReindexService) Human(human bool) *ReindexService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *ReindexService) ErrorTrace(errorTrace bool) *ReindexService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *ReindexService) FilterPath(filterPath ...string) *ReindexService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *ReindexService) Header(name string, value string) *ReindexService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *ReindexService) Headers(headers http.Header) *ReindexService {
+	s.headers = headers
+	return s
 }
 
 // WaitForActiveShards sets the number of shard copies that must be active before
@@ -58,7 +104,7 @@ func (s *ReindexService) RequestsPerSecond(requestsPerSecond int) *ReindexServic
 // Slices specifies the number of slices this task should be divided into. Defaults to 1.
 // It used to  be a number, but can be set to "auto" as of 6.7.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-reindex.html#docs-reindex-slice
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-reindex.html#docs-reindex-slice
 // for details.
 func (s *ReindexService) Slices(slices interface{}) *ReindexService {
 	s.slices = slices
@@ -68,7 +114,7 @@ func (s *ReindexService) Slices(slices interface{}) *ReindexService {
 // Refresh indicates whether Elasticsearch should refresh the effected indexes
 // immediately.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-refresh.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-refresh.html
 // for details.
 func (s *ReindexService) Refresh(refresh string) *ReindexService {
 	s.refresh = refresh
@@ -86,21 +132,6 @@ func (s *ReindexService) Timeout(timeout string) *ReindexService {
 // reindex is complete.
 func (s *ReindexService) WaitForCompletion(waitForCompletion bool) *ReindexService {
 	s.waitForCompletion = &waitForCompletion
-	return s
-}
-
-// Header sets headers on the request
-func (s *ReindexService) Header(name string, value string) *ReindexService {
-	if s.headers == nil {
-		s.headers = http.Header{}
-	}
-	s.headers.Add(name, value)
-	return s
-}
-
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *ReindexService) Pretty(pretty bool) *ReindexService {
-	s.pretty = pretty
 	return s
 }
 
@@ -193,8 +224,17 @@ func (s *ReindexService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.refresh != "" {
 		params.Set("refresh", s.refresh)
@@ -325,7 +365,7 @@ func (s *ReindexService) DoAsync(ctx context.Context) (*StartTaskResult, error) 
 		return nil, err
 	}
 
-	// DoAsync only makes sense with WaitForCompletion set to true
+	// DoAsync only makes sense with WaitForCompletion set to false
 	if s.waitForCompletion != nil && *s.waitForCompletion {
 		return nil, fmt.Errorf("cannot start a task with WaitForCompletion set to true")
 	}
@@ -369,20 +409,7 @@ func (s *ReindexService) DoAsync(ctx context.Context) (*StartTaskResult, error) 
 
 // ReindexSource specifies the source of a Reindex process.
 type ReindexSource struct {
-	searchType string // default in ES is "query_then_fetch"
 	request    *SearchRequest
-	/*
-		indices      []string
-		types        []string
-		routing      *string
-		preference   *string
-		requestCache *bool
-		scroll       string
-		query        Query
-		sorts        []SortInfo
-		sorters      []Sorter
-		searchSource *SearchSource
-	*/
 	remoteInfo *ReindexRemoteInfo
 }
 
@@ -596,13 +623,13 @@ func (ri *ReindexRemoteInfo) Source() (interface{}, error) {
 	return res, nil
 }
 
-// -source Destination of Reindex --
+// -- Destination of Reindex --
 
 // ReindexDestination is the destination of a Reindex API call.
 // It is basically the meta data of a BulkIndexRequest.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-reindex.html
-// fsourcer details.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-reindex.html
+// for details.
 type ReindexDestination struct {
 	index       string
 	typ         string
@@ -611,6 +638,7 @@ type ReindexDestination struct {
 	opType      string
 	version     int64  // default is MATCH_ANY
 	versionType string // default is "internal"
+	pipeline    string
 }
 
 // NewReindexDestination returns a new ReindexDestination.
@@ -660,7 +688,7 @@ func (r *ReindexDestination) Parent(parent string) *ReindexDestination {
 
 // OpType specifies if this request should follow create-only or upsert
 // behavior. This follows the OpType of the standard document index API.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-index_.html#operation-type
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-index_.html#operation-type
 // for details.
 func (r *ReindexDestination) OpType(opType string) *ReindexDestination {
 	r.opType = opType
@@ -677,6 +705,12 @@ func (r *ReindexDestination) Version(version int64) *ReindexDestination {
 // VersionType specifies how versions are created.
 func (r *ReindexDestination) VersionType(versionType string) *ReindexDestination {
 	r.versionType = versionType
+	return r
+}
+
+// Pipeline specifies the pipeline to use for reindexing.
+func (r *ReindexDestination) Pipeline(pipeline string) *ReindexDestination {
+	r.pipeline = pipeline
 	return r
 }
 
@@ -703,6 +737,9 @@ func (r *ReindexDestination) Source() (interface{}, error) {
 	}
 	if r.versionType != "" {
 		source["version_type"] = r.versionType
+	}
+	if r.pipeline != "" {
+		source["pipeline"] = r.pipeline
 	}
 	return source, nil
 }

@@ -8,7 +8,7 @@ package elastic
 // of the provided terms (not analyzed).
 //
 // For more details, see
-// https://www.elastic.co/guide/en/elasticsearch/reference/6.7/query-dsl-terms-query.html
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/query-dsl-terms-query.html
 type TermsQuery struct {
 	name        string
 	values      []interface{}
@@ -25,6 +25,19 @@ func NewTermsQuery(name string, values ...interface{}) *TermsQuery {
 	}
 	if len(values) > 0 {
 		q.values = append(q.values, values...)
+	}
+	return q
+}
+
+// NewTermsQueryFromStrings creates and initializes a new TermsQuery
+// from strings.
+func NewTermsQueryFromStrings(name string, values ...string) *TermsQuery {
+	q := &TermsQuery{
+		name:   name,
+		values: make([]interface{}, 0),
+	}
+	for _, v := range values {
+		q.values = append(q.values, v)
 	}
 	return q
 }

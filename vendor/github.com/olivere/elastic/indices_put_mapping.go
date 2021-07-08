@@ -7,21 +7,27 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
 // IndicesPutMappingService allows to register specific mapping definition
 // for a specific type.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/indices-put-mapping.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/indices-put-mapping.html
 // for details.
 type IndicesPutMappingService struct {
-	client            *Client
-	pretty            bool
-	typ               string
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	index             []string
 	masterTimeout     string
 	ignoreUnavailable *bool
@@ -47,16 +53,50 @@ func NewIndicesPutMappingService(client *Client) *IndicesPutMappingService {
 	}
 }
 
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *IndicesPutMappingService) Pretty(pretty bool) *IndicesPutMappingService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *IndicesPutMappingService) Human(human bool) *IndicesPutMappingService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *IndicesPutMappingService) ErrorTrace(errorTrace bool) *IndicesPutMappingService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *IndicesPutMappingService) FilterPath(filterPath ...string) *IndicesPutMappingService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *IndicesPutMappingService) Header(name string, value string) *IndicesPutMappingService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *IndicesPutMappingService) Headers(headers http.Header) *IndicesPutMappingService {
+	s.headers = headers
+	return s
+}
+
 // Index is a list of index names the mapping should be added to
 // (supports wildcards); use `_all` or omit to add the mapping on all indices.
 func (s *IndicesPutMappingService) Index(indices ...string) *IndicesPutMappingService {
 	s.index = append(s.index, indices...)
-	return s
-}
-
-// Type is the name of the document type.
-func (s *IndicesPutMappingService) Type(typ string) *IndicesPutMappingService {
-	s.typ = typ
 	return s
 }
 
@@ -101,12 +141,6 @@ func (s *IndicesPutMappingService) UpdateAllTypes(updateAllTypes bool) *IndicesP
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *IndicesPutMappingService) Pretty(pretty bool) *IndicesPutMappingService {
-	s.pretty = pretty
-	return s
-}
-
 // BodyJson contains the mapping definition.
 func (s *IndicesPutMappingService) BodyJson(mapping map[string]interface{}) *IndicesPutMappingService {
 	s.bodyJson = mapping
@@ -121,28 +155,26 @@ func (s *IndicesPutMappingService) BodyString(mapping string) *IndicesPutMapping
 
 // buildURL builds the URL for the operation.
 func (s *IndicesPutMappingService) buildURL() (string, url.Values, error) {
-	var err error
-	var path string
-
-	// Build URL: Typ MUST be specified and is verified in Validate.
-	if len(s.index) > 0 {
-		path, err = uritemplates.Expand("/{index}/_mapping/{type}", map[string]string{
-			"index": strings.Join(s.index, ","),
-			"type":  s.typ,
-		})
-	} else {
-		path, err = uritemplates.Expand("/_mapping/{type}", map[string]string{
-			"type": s.typ,
-		})
-	}
+	path, err := uritemplates.Expand("/{index}/_mapping", map[string]string{
+		"index": strings.Join(s.index, ","),
+	})
 	if err != nil {
 		return "", url.Values{}, err
 	}
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.ignoreUnavailable != nil {
 		params.Set("ignore_unavailable", fmt.Sprintf("%v", *s.ignoreUnavailable))
@@ -168,8 +200,8 @@ func (s *IndicesPutMappingService) buildURL() (string, url.Values, error) {
 // Validate checks if the operation is valid.
 func (s *IndicesPutMappingService) Validate() error {
 	var invalid []string
-	if s.typ == "" {
-		invalid = append(invalid, "Type")
+	if len(s.index) == 0 {
+		invalid = append(invalid, "Index")
 	}
 	if s.bodyString == "" && s.bodyJson == nil {
 		invalid = append(invalid, "BodyJson")
@@ -203,10 +235,11 @@ func (s *IndicesPutMappingService) Do(ctx context.Context) (*PutMappingResponse,
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "PUT",
-		Path:   path,
-		Params: params,
-		Body:   body,
+		Method:  "PUT",
+		Path:    path,
+		Params:  params,
+		Body:    body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

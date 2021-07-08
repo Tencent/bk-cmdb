@@ -14,7 +14,7 @@ import (
 
 // BulkUpdateRequest is a request to update a document in Elasticsearch.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-bulk.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-bulk.html
 // for details.
 type BulkUpdateRequest struct {
 	BulkableRequest
@@ -34,6 +34,8 @@ type BulkUpdateRequest struct {
 	detectNoop      *bool
 	doc             interface{}
 	returnSource    *bool
+	ifSeqNo         *int64
+	ifPrimaryTerm   *int64
 
 	source []string
 
@@ -54,6 +56,8 @@ type bulkUpdateRequestCommandOp struct {
 	Routing         string `json:"routing,omitempty"`
 	Version         int64  `json:"version,omitempty"`
 	VersionType     string `json:"version_type,omitempty"`
+	IfSeqNo         *int64 `json:"if_seq_no,omitempty"`
+	IfPrimaryTerm   *int64 `json:"if_primary_term,omitempty"`
 }
 
 //easyjson:json
@@ -120,8 +124,8 @@ func (r *BulkUpdateRequest) Parent(parent string) *BulkUpdateRequest {
 }
 
 // Script specifies an update script.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-bulk.html#bulk-update
-// and https://www.elastic.co/guide/en/elasticsearch/reference/6.7/modules-scripting.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-bulk.html#bulk-update
+// and https://www.elastic.co/guide/en/elasticsearch/reference/7.0/modules-scripting.html
 // for details.
 func (r *BulkUpdateRequest) Script(script *Script) *BulkUpdateRequest {
 	r.script = script
@@ -132,7 +136,7 @@ func (r *BulkUpdateRequest) Script(script *Script) *BulkUpdateRequest {
 // ScripedUpsert specifies if your script will run regardless of
 // whether the document exists or not.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-update.html#_literal_scripted_upsert_literal
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-update.html#_literal_scripted_upsert_literal
 func (r *BulkUpdateRequest) ScriptedUpsert(upsert bool) *BulkUpdateRequest {
 	r.scriptedUpsert = &upsert
 	r.source = nil
@@ -162,6 +166,20 @@ func (r *BulkUpdateRequest) VersionType(versionType string) *BulkUpdateRequest {
 	return r
 }
 
+// IfSeqNo indicates to only perform the index operation if the last
+// operation that has changed the document has the specified sequence number.
+func (r *BulkUpdateRequest) IfSeqNo(ifSeqNo int64) *BulkUpdateRequest {
+	r.ifSeqNo = &ifSeqNo
+	return r
+}
+
+// IfPrimaryTerm indicates to only perform the index operation if the
+// last operation that has changed the document has the specified primary term.
+func (r *BulkUpdateRequest) IfPrimaryTerm(ifPrimaryTerm int64) *BulkUpdateRequest {
+	r.ifPrimaryTerm = &ifPrimaryTerm
+	return r
+}
+
 // Doc specifies the updated document.
 func (r *BulkUpdateRequest) Doc(doc interface{}) *BulkUpdateRequest {
 	r.doc = doc
@@ -172,7 +190,7 @@ func (r *BulkUpdateRequest) Doc(doc interface{}) *BulkUpdateRequest {
 // DocAsUpsert indicates whether the contents of Doc should be used as
 // the Upsert value.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-update.html#_literal_doc_as_upsert_literal
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-update.html#_literal_doc_as_upsert_literal
 // for details.
 func (r *BulkUpdateRequest) DocAsUpsert(docAsUpsert bool) *BulkUpdateRequest {
 	r.docAsUpsert = &docAsUpsert
@@ -218,7 +236,7 @@ func (r *BulkUpdateRequest) String() string {
 
 // Source returns the on-wire representation of the update request,
 // split into an action-and-meta-data line and an (optional) source line.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/docs-bulk.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/docs-bulk.html
 // for details.
 func (r *BulkUpdateRequest) Source() ([]string, error) {
 	// { "update" : { "_index" : "test", "_type" : "type1", "_id" : "1", ... } }
@@ -243,6 +261,8 @@ func (r *BulkUpdateRequest) Source() ([]string, error) {
 		Version:         r.version,
 		VersionType:     r.versionType,
 		RetryOnConflict: r.retryOnConflict,
+		IfSeqNo:         r.ifSeqNo,
+		IfPrimaryTerm:   r.ifPrimaryTerm,
 	}
 	command := bulkUpdateRequestCommand{
 		"update": updateCommand,

@@ -11,36 +11,38 @@ import (
 // SearchSource enables users to build the search source.
 // It resembles the SearchSourceBuilder in Elasticsearch.
 type SearchSource struct {
-	query                    Query
-	postQuery                Query
-	sliceQuery               Query
-	from                     int
-	size                     int
-	explain                  *bool
-	version                  *bool
-	sorters                  []Sorter
-	trackScores              *bool
-	trackTotalHits           *bool
-	searchAfterSortValues    []interface{}
-	minScore                 *float64
-	timeout                  string
-	terminateAfter           *int
-	storedFieldNames         []string
-	docvalueFields           DocvalueFields
-	scriptFields             []*ScriptField
-	fetchSourceContext       *FetchSourceContext
-	aggregations             map[string]Aggregation
-	highlight                *Highlight
+	query                    Query                  // query
+	postQuery                Query                  // post_filter
+	sliceQuery               Query                  // slice
+	from                     int                    // from
+	size                     int                    // size
+	explain                  *bool                  // explain
+	version                  *bool                  // version
+	seqNoAndPrimaryTerm      *bool                  // seq_no_primary_term
+	sorters                  []Sorter               // sort
+	trackScores              *bool                  // track_scores
+	trackTotalHits           interface{}            // track_total_hits
+	searchAfterSortValues    []interface{}          // search_after
+	minScore                 *float64               // min_score
+	timeout                  string                 // timeout
+	terminateAfter           *int                   // terminate_after
+	storedFieldNames         []string               // stored_fields
+	docvalueFields           DocvalueFields         // docvalue_fields
+	scriptFields             []*ScriptField         // script_fields
+	fetchSourceContext       *FetchSourceContext    // _source
+	aggregations             map[string]Aggregation // aggregations / aggs
+	highlight                *Highlight             // highlight
 	globalSuggestText        string
-	suggesters               []Suggester
-	rescores                 []*Rescore
+	suggesters               []Suggester // suggest
+	rescores                 []*Rescore  // rescore
 	defaultRescoreWindowSize *int
-	indexBoosts              map[string]float64
-	stats                    []string
+	indexBoosts              IndexBoosts // indices_boost
+	stats                    []string    // stats
 	innerHits                map[string]*InnerHit
-	collapse                 *CollapseBuilder
-	profile                  bool
-	// TODO extBuilders []SearchExtBuilder
+	collapse                 *CollapseBuilder // collapse
+	profile                  bool             // profile
+	// TODO extBuilders []SearchExtBuilder // ext
+	pointInTime *PointInTime // pit
 }
 
 // NewSearchSource initializes a new SearchSource.
@@ -49,7 +51,6 @@ func NewSearchSource() *SearchSource {
 		from:         -1,
 		size:         -1,
 		aggregations: make(map[string]Aggregation),
-		indexBoosts:  make(map[string]float64),
 		innerHits:    make(map[string]*InnerHit),
 	}
 }
@@ -78,7 +79,7 @@ func (s *SearchSource) PostFilter(postFilter Query) *SearchSource {
 // Slice allows partitioning the documents in multiple slices.
 // It is e.g. used to slice a scroll operation, supported in
 // Elasticsearch 5.0 or later.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-scroll.html#sliced-scroll
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-scroll.html#sliced-scroll
 // for details.
 func (s *SearchSource) Slice(sliceQuery Query) *SearchSource {
 	s.sliceQuery = sliceQuery
@@ -114,6 +115,13 @@ func (s *SearchSource) Explain(explain bool) *SearchSource {
 // a version associated to it.
 func (s *SearchSource) Version(version bool) *SearchSource {
 	s.version = &version
+	return s
+}
+
+// SeqNoAndPrimaryTerm indicates whether SearchHits should be returned with the
+// sequence number and primary term of the last modification of the document.
+func (s *SearchSource) SeqNoAndPrimaryTerm(enabled bool) *SearchSource {
+	s.seqNoAndPrimaryTerm = &enabled
 	return s
 }
 
@@ -166,20 +174,20 @@ func (s *SearchSource) TrackScores(trackScores bool) *SearchSource {
 	return s
 }
 
-// TrackTotalHits indicates if the total hit count for the query should be tracked.
-// Defaults to true.
+// TrackTotalHits controls how the total number of hits should be tracked.
+// Defaults to 10000 which will count the total hit accurately up to 10,000 hits.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/index-modules-index-sorting.html#early-terminate
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-track-total-hits.html
 // for details.
-func (s *SearchSource) TrackTotalHits(trackTotalHits bool) *SearchSource {
-	s.trackTotalHits = &trackTotalHits
+func (s *SearchSource) TrackTotalHits(trackTotalHits interface{}) *SearchSource {
+	s.trackTotalHits = trackTotalHits
 	return s
 }
 
 // SearchAfter allows a different form of pagination by using a live cursor,
 // using the results of the previous page to help the retrieval of the next.
 //
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/search-request-search-after.html
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-request-search-after.html
 func (s *SearchSource) SearchAfter(sortValues ...interface{}) *SearchSource {
 	s.searchAfterSortValues = append(s.searchAfterSortValues, sortValues...)
 	return s
@@ -268,7 +276,7 @@ func (s *SearchSource) FetchSourceIncludeExclude(include, exclude []string) *Sea
 // NoStoredFields indicates that no fields should be loaded, resulting in only
 // id and type to be returned per field.
 func (s *SearchSource) NoStoredFields() *SearchSource {
-	s.storedFieldNames = nil
+	s.storedFieldNames = []string{}
 	return s
 }
 
@@ -332,7 +340,13 @@ func (s *SearchSource) ScriptFields(scriptFields ...*ScriptField) *SearchSource 
 // IndexBoost sets the boost that a specific index will receive when the
 // query is executed against it.
 func (s *SearchSource) IndexBoost(index string, boost float64) *SearchSource {
-	s.indexBoosts[index] = boost
+	s.indexBoosts = append(s.indexBoosts, IndexBoost{Index: index, Boost: boost})
+	return s
+}
+
+// IndexBoosts sets the boosts for specific indices.
+func (s *SearchSource) IndexBoosts(boosts ...IndexBoost) *SearchSource {
+	s.indexBoosts = append(s.indexBoosts, boosts...)
 	return s
 }
 
@@ -351,6 +365,13 @@ func (s *SearchSource) InnerHit(name string, innerHit *InnerHit) *SearchSource {
 // Collapse adds field collapsing.
 func (s *SearchSource) Collapse(collapse *CollapseBuilder) *SearchSource {
 	s.collapse = collapse
+	return s
+}
+
+// PointInTime specifies an optional PointInTime to be used in the context
+// of this search.
+func (s *SearchSource) PointInTime(pointInTime *PointInTime) *SearchSource {
+	s.pointInTime = pointInTime
 	return s
 }
 
@@ -444,7 +465,7 @@ func (s *SearchSource) Source() (interface{}, error) {
 		source["track_scores"] = *v
 	}
 	if v := s.trackTotalHits; v != nil {
-		source["track_total_hits"] = *v
+		source["track_total_hits"] = v
 	}
 	if len(s.searchAfterSortValues) > 0 {
 		source["search_after"] = s.searchAfterSortValues
@@ -457,7 +478,11 @@ func (s *SearchSource) Source() (interface{}, error) {
 		source["slice"] = src
 	}
 	if len(s.indexBoosts) > 0 {
-		source["indices_boost"] = s.indexBoosts
+		src, err := s.indexBoosts.Source()
+		if err != nil {
+			return nil, err
+		}
+		source["indices_boost"] = src
 	}
 	if len(s.aggregations) > 0 {
 		aggsMap := make(map[string]interface{})
@@ -532,6 +557,10 @@ func (s *SearchSource) Source() (interface{}, error) {
 		source["collapse"] = src
 	}
 
+	if v := s.seqNoAndPrimaryTerm; v != nil {
+		source["seq_no_primary_term"] = *v
+	}
+
 	if len(s.innerHits) > 0 {
 		// Top-level inner hits
 		// See http://www.elastic.co/guide/en/elasticsearch/reference/1.5/search-request-inner-hits.html#top-level-inner-hits
@@ -576,5 +605,45 @@ func (s *SearchSource) Source() (interface{}, error) {
 		source["inner_hits"] = m
 	}
 
+	// Point in Time
+	if s.pointInTime != nil {
+		src, err := s.pointInTime.Source()
+		if err != nil {
+			return nil, err
+		}
+		source["pit"] = src
+	}
+
 	return source, nil
+}
+
+// -- IndexBoosts --
+
+// IndexBoost specifies an index by some boost factor.
+type IndexBoost struct {
+	Index string
+	Boost float64
+}
+
+// Source generates a JSON-serializable output for IndexBoost.
+func (b IndexBoost) Source() (interface{}, error) {
+	return map[string]interface{}{
+		b.Index: b.Boost,
+	}, nil
+}
+
+// IndexBoosts is a slice of IndexBoost entities.
+type IndexBoosts []IndexBoost
+
+// Source generates a JSON-serializable output for IndexBoosts.
+func (b IndexBoosts) Source() (interface{}, error) {
+	var boosts []interface{}
+	for _, ib := range b {
+		src, err := ib.Source()
+		if err != nil {
+			return nil, err
+		}
+		boosts = append(boosts, src)
+	}
+	return boosts, nil
 }

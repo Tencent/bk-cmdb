@@ -7,16 +7,30 @@ package elastic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/olivere/elastic/uritemplates"
+	"github.com/olivere/elastic/v7/uritemplates"
 )
 
-// IndicesPutTemplateService creates or updates index mappings.
-// See https://www.elastic.co/guide/en/elasticsearch/reference/6.7/indices-templates.html.
+// IndicesPutTemplateService creates or updates templates.
+//
+// Index templates have changed during in 7.8 update of Elasticsearch.
+// This service implements the legacy version (7.7 or lower). If you want
+// the new version, please use the IndicesPutIndexTemplateService.
+//
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.9/indices-templates-v1.html
+// for more details.
 type IndicesPutTemplateService struct {
-	client        *Client
-	pretty        bool
+	client *Client
+
+	pretty     *bool       // pretty format the returned JSON response
+	human      *bool       // return human readable values for statistics
+	errorTrace *bool       // include the stack trace of returned errors
+	filterPath []string    // list of filters used to reduce the response
+	headers    http.Header // custom request-level HTTP headers
+
 	name          string
 	cause         string
 	order         interface{}
@@ -34,6 +48,46 @@ func NewIndicesPutTemplateService(client *Client) *IndicesPutTemplateService {
 	return &IndicesPutTemplateService{
 		client: client,
 	}
+}
+
+// Pretty tells Elasticsearch whether to return a formatted JSON response.
+func (s *IndicesPutTemplateService) Pretty(pretty bool) *IndicesPutTemplateService {
+	s.pretty = &pretty
+	return s
+}
+
+// Human specifies whether human readable values should be returned in
+// the JSON response, e.g. "7.5mb".
+func (s *IndicesPutTemplateService) Human(human bool) *IndicesPutTemplateService {
+	s.human = &human
+	return s
+}
+
+// ErrorTrace specifies whether to include the stack trace of returned errors.
+func (s *IndicesPutTemplateService) ErrorTrace(errorTrace bool) *IndicesPutTemplateService {
+	s.errorTrace = &errorTrace
+	return s
+}
+
+// FilterPath specifies a list of filters used to reduce the response.
+func (s *IndicesPutTemplateService) FilterPath(filterPath ...string) *IndicesPutTemplateService {
+	s.filterPath = filterPath
+	return s
+}
+
+// Header adds a header to the request.
+func (s *IndicesPutTemplateService) Header(name string, value string) *IndicesPutTemplateService {
+	if s.headers == nil {
+		s.headers = http.Header{}
+	}
+	s.headers.Add(name, value)
+	return s
+}
+
+// Headers specifies the headers of the request.
+func (s *IndicesPutTemplateService) Headers(headers http.Header) *IndicesPutTemplateService {
+	s.headers = headers
+	return s
 }
 
 // Name is the name of the index template.
@@ -87,12 +141,6 @@ func (s *IndicesPutTemplateService) Create(create bool) *IndicesPutTemplateServi
 	return s
 }
 
-// Pretty indicates that the JSON response be indented and human readable.
-func (s *IndicesPutTemplateService) Pretty(pretty bool) *IndicesPutTemplateService {
-	s.pretty = pretty
-	return s
-}
-
 // BodyJson is documented as: The template definition.
 func (s *IndicesPutTemplateService) BodyJson(body interface{}) *IndicesPutTemplateService {
 	s.bodyJson = body
@@ -117,8 +165,17 @@ func (s *IndicesPutTemplateService) buildURL() (string, url.Values, error) {
 
 	// Add query string parameters
 	params := url.Values{}
-	if s.pretty {
-		params.Set("pretty", "true")
+	if v := s.pretty; v != nil {
+		params.Set("pretty", fmt.Sprint(*v))
+	}
+	if v := s.human; v != nil {
+		params.Set("human", fmt.Sprint(*v))
+	}
+	if v := s.errorTrace; v != nil {
+		params.Set("error_trace", fmt.Sprint(*v))
+	}
+	if len(s.filterPath) > 0 {
+		params.Set("filter_path", strings.Join(s.filterPath, ","))
 	}
 	if s.order != nil {
 		params.Set("order", fmt.Sprintf("%v", s.order))
@@ -182,10 +239,11 @@ func (s *IndicesPutTemplateService) Do(ctx context.Context) (*IndicesPutTemplate
 
 	// Get HTTP response
 	res, err := s.client.PerformRequest(ctx, PerformRequestOptions{
-		Method: "PUT",
-		Path:   path,
-		Params: params,
-		Body:   body,
+		Method:  "PUT",
+		Path:    path,
+		Params:  params,
+		Body:    body,
+		Headers: s.headers,
 	})
 	if err != nil {
 		return nil, err

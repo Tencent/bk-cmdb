@@ -21,8 +21,8 @@ const (
 		"run_as" : [ "other_user" ],
 		"global" : {
 			"application": {
-			  "manage": {    
-				  "applications": [ "my-test-app" ] 
+			  "manage": {
+				  "applications": [ "my-test-app" ]
 			  }
 			}
 		  },
@@ -58,6 +58,10 @@ const (
 		}
 	  }`
 
+	testUserBody = `{
+		"password": "secret",
+		"roles": ["admin"]
+	}`
 	testWatchBody = `{
 		"trigger" : {
 			"schedule" : { "cron" : "0 0/1 * * * ?" }
@@ -214,6 +218,84 @@ func TestXPackSecurityRoleMapping(t *testing.T) {
 
 }
 
+func TestXPackSecurityUser(t *testing.T) {
+	client := setupTestClientForXpackSecurity(t)
+
+	xpackInfo, err := client.XPackInfo().Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !xpackInfo.Features.Security.Enabled {
+		t.Skip("skip due to deactivated xpack security")
+	}
+
+	username := "john"
+
+	// Add a user
+	createResp, err := client.XPackSecurityPutUser(username).Body(testUserBody).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createResp == nil {
+		t.Fatal("expected to create user")
+	}
+	if want, have := true, createResp.Created; want != have {
+		t.Fatalf("want Created=%v, have %v", want, have)
+	}
+	defer func() {
+		client.XPackSecurityDeleteUser(username).Do(context.Background())
+	}()
+
+	// Get a user
+	user, err := client.XPackSecurityGetUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*user) == 0 {
+		t.Errorf("expected len(Mappings) > 0; got empty")
+	}
+	if _, ok := (*user)[username]; !ok {
+		t.Errorf("expected user mapping %s; key did not exist", username)
+	}
+	if user == &(XPackSecurityGetUserResponse{}) {
+		t.Errorf("expected data from response; got empty response")
+	}
+	// Disable a user
+	_, err = client.XPackSecurityDisableUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err = client.XPackSecurityGetUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (*user)[username].Enabled {
+		t.Error("expected test user to be disabled; was still enabled")
+	}
+	// Enable a user
+	_, err = client.XPackSecurityEnableUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err = client.XPackSecurityGetUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(*user)[username].Enabled {
+		t.Error("expected test user to be enabled; was still disabled")
+	}
+
+	// Delete a user
+	deletedUser, err := client.XPackSecurityDeleteUser(username).Do(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deletedUser.Found {
+		t.Error("expected test user to be found; was not found")
+	}
+
+}
+
 func TestXPackWatcher(t *testing.T) {
 	client := setupTestClientAndCreateIndex(t, SetURL("http://elastic:elastic@localhost:9210"))
 
@@ -315,20 +397,11 @@ func TestXPackWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats, err = client.XPackWatchStats().Do(context.Background())
+	_, err = client.XPackWatchStats().Do(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want, have := true, start.Acknowledged; want != have {
 		t.Errorf("expected start.Acknowledged == %v; got %v", want, have)
-	}
-
-	// Restart
-	restart, err := client.XPackWatchRestart().Do(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want, have := true, restart.Acknowledged; want != have {
-		t.Errorf("expected stats.WatcherState == %v; got %v", want, have)
 	}
 }
