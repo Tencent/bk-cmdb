@@ -381,6 +381,7 @@ type ListHostsParameter struct {
 	SetIDs             []int64                   `json:"bk_set_ids"`
 	SetCond            []ConditionItem           `json:"set_cond"`
 	ModuleIDs          []int64                   `json:"bk_module_ids"`
+	ModuleCond         []ConditionItem           `json:"module_cond"`
 	HostPropertyFilter *querybuilder.QueryFilter `json:"host_property_filter"`
 	Fields             []string                  `json:"fields"`
 	Page               BasePage                  `json:"page"`
@@ -432,6 +433,55 @@ func (option ListHostsWithNoBizParameter) Validate() (string, error) {
 	}
 
 	return "", nil
+}
+
+type ListBizHostsTopoParameter struct {
+	SetPropertyFilter    *querybuilder.QueryFilter `json:"set_property_filter"`
+	ModulePropertyFilter *querybuilder.QueryFilter `json:"module_property_filter"`
+	HostPropertyFilter   *querybuilder.QueryFilter `json:"host_property_filter"`
+	Fields               []string                  `json:"fields"`
+	Page                 BasePage                  `json:"page"`
+}
+
+func (option ListBizHostsTopoParameter) Validate(errProxy errors.DefaultCCErrorIf) errors.CCErrorCoder {
+	if option.Page.Limit == 0 {
+		return errProxy.CCErrorf(common.CCErrCommParamsNeedSet, "page.limit")
+	}
+	if option.Page.Limit > common.BKMaxInstanceLimit {
+		return errProxy.CCErrorf(common.CCErrCommXXExceedLimit, "page.limit", common.BKMaxInstanceLimit)
+	}
+
+	if option.HostPropertyFilter != nil {
+		if key, err := option.HostPropertyFilter.Validate(); err != nil {
+			blog.Errorf("valid host property filter failed, err: %v", err)
+			return errProxy.CCErrorf(common.CCErrCommParamsInvalid, fmt.Sprintf("host_property_filter.%s", key))
+		}
+		if option.HostPropertyFilter.GetDeep() > querybuilder.MaxDeep {
+			return errProxy.CCErrorf(common.CCErrCommXXExceedLimit, "host_property_filter.rules", querybuilder.MaxDeep)
+		}
+	}
+
+	if option.SetPropertyFilter != nil {
+		if key, err := option.SetPropertyFilter.Validate(); err != nil {
+			blog.Errorf("valid set property filter failed, err: %v", err)
+			return errProxy.CCErrorf(common.CCErrCommParamsInvalid, fmt.Sprintf("set_property_filter.%s", key))
+		}
+		if option.SetPropertyFilter.GetDeep() > querybuilder.MaxDeep {
+			return errProxy.CCErrorf(common.CCErrCommXXExceedLimit, "set_property_filter.rules", querybuilder.MaxDeep)
+		}
+	}
+
+	if option.ModulePropertyFilter != nil {
+		if key, err := option.ModulePropertyFilter.Validate(); err != nil {
+			blog.Errorf("valid module property filter failed, err: %v", err)
+			return errProxy.CCErrorf(common.CCErrCommParamsInvalid, fmt.Sprintf("module_property_filter.%s", key))
+		}
+		if option.ModulePropertyFilter.GetDeep() > querybuilder.MaxDeep {
+			return errProxy.CCErrorf(common.CCErrCommXXExceedLimit, "module_property_filter.rules", querybuilder.MaxDeep)
+		}
+	}
+
+	return nil
 }
 
 type ListHostsDetailAndTopoOption struct {
