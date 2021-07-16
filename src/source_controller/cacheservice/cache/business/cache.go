@@ -16,9 +16,9 @@ import (
 	"fmt"
 	"sync"
 
-	"configcenter/src/common"
-	"configcenter/src/source_controller/cacheservice/cache/tools"
-	"configcenter/src/storage/reflector"
+	"configcenter/src/storage/driver/mongodb"
+	"configcenter/src/storage/driver/redis"
+	"configcenter/src/storage/stream"
 )
 
 var client *Client
@@ -33,7 +33,8 @@ func NewClient() *Client {
 
 	clientOnce.Do(func() {
 		client = &Client{
-			lock: tools.NewRefreshingLock(),
+			rds: redis.Client(),
+			db:  mongodb.Client(),
 		}
 	})
 
@@ -41,7 +42,7 @@ func NewClient() *Client {
 }
 
 // Attention, it can only be called for once.
-func NewCache(event reflector.Interface) error {
+func NewCache(event stream.LoopInterface) error {
 
 	if cache != nil {
 		return nil
@@ -51,36 +52,49 @@ func NewCache(event reflector.Interface) error {
 	biz := &business{
 		key:   bizKey,
 		event: event,
+		rds:   redis.Client(),
+		db:    mongodb.Client(),
 	}
 
 	if err := biz.Run(); err != nil {
 		return fmt.Errorf("run biz cache failed, err: %v", err)
 	}
 
-	module := &moduleSet{
-		key:        moduleKey,
-		collection: common.BKTableNameBaseModule,
-		event:      event,
-		lock:       tools.NewRefreshingLock(),
+	module := &module{
+		key:   moduleKey,
+		event: event,
+		rds:   redis.Client(),
+		db:    mongodb.Client(),
 	}
 	if err := module.Run(); err != nil {
 		return fmt.Errorf("run module cache failed, err: %v", err)
 	}
 
-	set := &moduleSet{
-		key:        setKey,
-		collection: common.BKTableNameBaseSet,
-		event:      event,
-		lock:       tools.NewRefreshingLock(),
+	set := &set{
+		key:   setKey,
+		event: event,
+		rds:   redis.Client(),
+		db:    mongodb.Client(),
 	}
 	if err := set.Run(); err != nil {
 		return fmt.Errorf("run set cache failed, err: %v", err)
+	}
+
+	custom := &customLevel{
+		event: event,
+		rds:   redis.Client(),
+		db:    mongodb.Client(),
+	}
+
+	if err := custom.Run(); err != nil {
+		return fmt.Errorf("run biz custom level cache failed, err: %v", err)
 	}
 
 	cache = &cacheCollection{
 		business: biz,
 		set:      set,
 		module:   module,
+		custom:   custom,
 	}
 	return nil
 }

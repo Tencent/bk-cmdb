@@ -364,7 +364,7 @@ func (lw *LoopsWatch) tryLoopWithOne(ctxWithCancel context.Context,
 		}
 
 		if !loop {
-			blog.Infof("%s job, received %s event, but not master, skip. details: %s, rid: %s",
+			blog.Infof("%s job, received %s %s event, but not master, skip. details: %s, rid: %s",
 				opts.Name, opts.WatchOpt.Collection, one.OperationType, one.String(), one.ID())
 			continue
 		}

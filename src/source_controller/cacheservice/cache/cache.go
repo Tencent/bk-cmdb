@@ -31,7 +31,7 @@ import (
 func NewCache(reflector reflector.Interface, loopW stream.LoopInterface, isMaster discovery.ServiceManageInterface,
 	watchDB dal.DB) (*ClientSet, error) {
 
-	if err := business.NewCache(reflector); err != nil {
+	if err := business.NewCache(loopW); err != nil {
 		return nil, fmt.Errorf("new business cache failed, err: %v", err)
 	}
 

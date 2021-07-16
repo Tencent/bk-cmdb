@@ -31,10 +31,6 @@ func (ps *parseStream) cacheRelated() *parseStream {
 	return ps
 }
 
-const (
-	searchTopologyTreePattern = "/api/v3/cache/find/cache/topo/topotree"
-)
-
 var (
 	findBizBriefTopologyRegexp = regexp.MustCompile(`^/api/v3/cache/find/cache/topo/brief/biz/[0-9]+/?$`)
 	findBizTopoNodePathRegexp  = regexp.MustCompile(`^/api/v3/cache/find/cache/topo/node_path/biz/[0-9]+/?$`)
@@ -70,18 +66,6 @@ func (ps *parseStream) cacheTopology() *parseStream {
 	}
 
 	if ps.hitRegexp(findBizTopoNodePathRegexp, http.MethodPost) {
-		ps.Attribute.Resources = []meta.ResourceAttribute{
-			{
-				Basic: meta.Basic{
-					Type:   meta.BizTopology,
-					Action: meta.Find,
-				},
-			},
-		}
-		return ps
-	}
-
-	if ps.hitPattern(searchTopologyTreePattern, http.MethodPost) {
 		ps.Attribute.Resources = []meta.ResourceAttribute{
 			{
 				Basic: meta.Basic{

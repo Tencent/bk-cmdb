@@ -424,7 +424,6 @@ func (f *Flow) doInsertEvents(chainNodes []*watch.ChainNode, lastTokenData map[s
 	return false, nil
 }
 
-
 func isConflictChainNode(chainNode *watch.ChainNode, err error) bool {
 	return strings.Contains(err.Error(), chainNode.Cursor) && strings.Contains(err.Error(), "index_cursor")
 }

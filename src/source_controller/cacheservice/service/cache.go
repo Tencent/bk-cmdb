@@ -26,32 +26,6 @@ import (
 	"configcenter/src/source_controller/cacheservice/event"
 )
 
-func (s *cacheService) SearchTopologyTreeInCache(ctx *rest.Contexts) {
-	opt := new(topo_tree.SearchOption)
-	if err := ctx.DecodeInto(&opt); nil != err {
-		ctx.RespAutoError(err)
-		return
-	}
-
-	opt.SupplierAccount = ctx.Kit.SupplierAccount
-
-	if err := opt.Validate(); err != nil {
-		ctx.RespErrorCodeOnly(common.CCErrCommHTTPInputInvalid, "search topology tree, but request parameter is invalid: %v", err)
-		return
-	}
-
-	topo, err := s.cacheSet.Tree.SearchTopologyTree(opt)
-	if err != nil {
-		if err == topo_tree.OverHeadError {
-			ctx.RespWithError(err, common.SearchTopoTreeScanTooManyData, "search topology tree failed, err: %v", err)
-			return
-		}
-		ctx.RespErrorCodeOnly(common.CCErrCommDBSelectFailed, "search topology tree failed, err: %v", err)
-		return
-	}
-	ctx.RespEntity(topo)
-}
-
 func (s *cacheService) SearchHostWithInnerIPInCache(ctx *rest.Contexts) {
 	opt := new(metadata.SearchHostWithInnerIPOption)
 	if err := ctx.DecodeInto(&opt); nil != err {
@@ -169,7 +143,7 @@ func (s *cacheService) SearchBusinessInCache(ctx *rest.Contexts) {
 		ctx.RespErrorCodeOnly(common.CCErrCommParamsIsInvalid, "invalid biz id")
 		return
 	}
-	biz, err := s.cacheSet.Business.GetBusiness(bizID)
+	biz, err := s.cacheSet.Business.GetBusiness(ctx.Kit.Ctx, bizID)
 	if err != nil {
 		ctx.RespErrorCodeOnly(common.CCErrCommDBSelectFailed, "search biz with id in cache, but get biz failed, err: %v", err)
 		return
@@ -184,7 +158,7 @@ func (s *cacheService) SearchSetInCache(ctx *rest.Contexts) {
 		return
 	}
 
-	set, err := s.cacheSet.Business.GetSet(setID)
+	set, err := s.cacheSet.Business.GetSet(ctx.Kit.Ctx, setID)
 	if err != nil {
 		ctx.RespErrorCodeOnly(common.CCErrCommDBSelectFailed, "search set with id in cache failed, err: %v", err)
 		return
@@ -199,7 +173,7 @@ func (s *cacheService) SearchModuleInCache(ctx *rest.Contexts) {
 		return
 	}
 
-	module, err := s.cacheSet.Business.GetModuleDetail(moduleID)
+	module, err := s.cacheSet.Business.GetModuleDetail(ctx.Kit.Ctx, moduleID)
 	if err != nil {
 		ctx.RespErrorCodeOnly(common.CCErrCommDBSelectFailed, "search module with id in cache failed, err: %v", err)
 		return
@@ -216,7 +190,7 @@ func (s *cacheService) SearchCustomLayerInCache(ctx *rest.Contexts) {
 		return
 	}
 
-	inst, err := s.cacheSet.Business.GetCustomLevelDetail(objID, ctx.Kit.SupplierAccount, instID)
+	inst, err := s.cacheSet.Business.GetCustomLevelDetail(ctx.Kit.Ctx, objID, ctx.Kit.SupplierAccount, instID)
 	if err != nil {
 		ctx.RespErrorCodeOnly(common.CCErrCommDBSelectFailed, "search custom layer with id in cache failed, err: %v", err)
 		return

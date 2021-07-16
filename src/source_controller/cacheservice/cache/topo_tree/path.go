@@ -21,7 +21,16 @@ import (
 	"configcenter/src/common/blog"
 	ccError "configcenter/src/common/errors"
 	"configcenter/src/common/json"
+	"configcenter/src/source_controller/cacheservice/cache/business"
 )
+
+func NewTopologyTree(client *business.Client) *TopologyTree {
+	return &TopologyTree{bizCache: client}
+}
+
+type TopologyTree struct {
+	bizCache *business.Client
+}
 
 func (t *TopologyTree) SearchNodePath(ctx context.Context, opt *SearchNodePathOption,
 	supplierAccount string) ([]NodePaths, error) {
@@ -351,7 +360,7 @@ func (t *TopologyTree) searchModules(ctx context.Context, biz int64, moduleIDs [
 
 	rid := ctx.Value(common.BKHTTPCCRequestID)
 
-	ms, err := t.bizCache.ListModuleDetails(moduleIDs)
+	ms, err := t.bizCache.ListModuleDetails(ctx, moduleIDs)
 	if err != nil {
 		blog.Errorf("list module detail from cache failed, err: %v, rid: %v", err, rid)
 		return nil, nil, err
@@ -387,7 +396,7 @@ func (t *TopologyTree) searchSets(ctx context.Context, biz int64, setIDs []int64
 
 	rid := ctx.Value(common.BKHTTPCCRequestID)
 
-	setDetails, err := t.bizCache.ListSetDetails(setIDs)
+	setDetails, err := t.bizCache.ListSetDetails(ctx, setIDs)
 	if err != nil {
 		blog.Errorf("construct module path, but get set details failed, err: %v, rid: %v", err, rid)
 		return nil, nil, err
@@ -421,7 +430,7 @@ func (t *TopologyTree) searchCustomInstances(ctx context.Context, object, suppli
 
 	rid := ctx.Value(common.BKHTTPCCRequestID)
 
-	instances, err := t.bizCache.ListCustomLevelDetail(object, supplierAccount, instIDs)
+	instances, err := t.bizCache.ListCustomLevelDetail(ctx, object, supplierAccount, instIDs)
 	if err != nil {
 		blog.Errorf("list custom level %s instances: %v failed, err: %v", object, instIDs, err)
 		return nil, nil, err
@@ -447,7 +456,7 @@ func (t *TopologyTree) bizDetail(ctx context.Context, bizID int64) (
 
 	rid := ctx.Value(common.BKHTTPCCRequestID)
 
-	business, err := t.bizCache.GetBusiness(bizID)
+	business, err := t.bizCache.GetBusiness(ctx, bizID)
 	if err != nil {
 		return nil, fmt.Errorf("get biz: %d detail failed, err: %v, rid: %v", bizID, err, rid)
 	}

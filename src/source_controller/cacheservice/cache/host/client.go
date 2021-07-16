@@ -20,6 +20,7 @@ import (
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/json"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/util"
 	"configcenter/src/source_controller/cacheservice/cache/tools"
@@ -170,7 +171,7 @@ func (c *Client) ListHostsWithPage(ctx context.Context, opt *metadata.ListHostWi
 
 	if len(opt.HostIDs) != 0 {
 		// find with host id directly.
-		total, err := c.countHost(ctx, map[string]interface{}{common.BKHostIDField: map[string]interface{}{common.BKDBIN: opt.HostIDs}})
+		total, err := c.countHost(ctx, mapstr.MapStr{common.BKHostIDField: mapstr.MapStr{common.BKDBIN: opt.HostIDs}})
 		if err != nil {
 			blog.Errorf("list host with page, but count failed, err: %v, rid: %v", err, rid)
 			return 0, nil, err

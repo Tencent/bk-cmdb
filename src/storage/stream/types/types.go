@@ -139,6 +139,7 @@ type Options struct {
 	// StartAfterToken describe where you want to watch the event.
 	// Note: the returned event doesn't contains the token represented,
 	// and will returns event just after this token.
+	// If StartAfterToken and StartAtTime is set at the same time, then StartAfterToken is used only.
 	StartAfterToken *EventToken
 
 	// Ensures that this watch will provide events that occurred after this timestamp.

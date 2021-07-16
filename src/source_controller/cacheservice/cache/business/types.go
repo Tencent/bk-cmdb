@@ -13,33 +13,18 @@
 package business
 
 import (
+	"sync"
 	"time"
 )
 
+const topologyKey = bizNamespace + ":custom:topology"
+const retryDuration = 500 * time.Millisecond
+
 type cacheCollection struct {
 	business *business
-	set      *moduleSet
-	module   *moduleSet
-}
-
-type forUpsertCache struct {
-	instID   int64
-	parentID int64
-	name     string
-	doc      []byte
-
-	// keys to be used
-	listKey         string
-	listExpireKey   string
-	detailKey       string
-	detailExpireKey string
-
-	// generate list value and parse list value
-	parseListKeyValue func(key string) (instIDint64, parentID int64, instName string, err error)
-	genListKeyValue   func(instID int64, parentID int64, instName string) string
-
-	// get the instance name with instance id from mongodb
-	getInstName func(instID int64) (name string, err error)
+	set      *set
+	module   *module
+	custom   *customLevel
 }
 
 type refreshInstance struct {
@@ -52,44 +37,86 @@ type refreshInstance struct {
 	getDetail func(instID int64) (string, error)
 }
 
-type refreshList struct {
-	// the key to store the list .
-	mainKey        string
-	lockKey        string
-	expireKey      string
-	expireDuration time.Duration
-	// detail is to get all the list keys to be refresh.
-	// for business list, the bizID should be ignored.
-	getList func(bizID int64) ([]string, error)
+type bizArchive struct {
+	Detail bizBaseInfo `json:"detail" bson:"detail"`
 }
 
-type BizBaseInfo struct {
+type bizBaseInfo struct {
 	BusinessID   int64  `json:"bk_biz_id" bson:"bk_biz_id"`
 	BusinessName string `json:"bk_biz_name" bson:"bk_biz_name"`
 }
 
-type ModuleBaseInfo struct {
-	ModuleID   int64  `json:"bk_module_id" bson:"bk_module_id"`
-	ModuleName string `json:"bk_module_name" bson:"bk_module_name"`
-	SetID      int64  `json:"bk_set_id" bson:"bk_set_id"`
+type moduleArchive struct {
+	Detail moduleBaseInfo `json:"detail" bson:"detail"`
 }
 
-type SetBaseInfo struct {
+type moduleBaseInfo struct {
+	ModuleID   int64  `json:"bk_module_id" bson:"bk_module_id"`
+	ModuleName string `json:"bk_module_name" bson:"bk_module_name"`
+}
+
+type setArchive struct {
+	Detail setBaseInfo `json:"detail" bson:"detail"`
+}
+
+type setBaseInfo struct {
 	SetID    int64  `json:"bk_set_id" bson:"bk_set_id"`
 	SetName  string `json:"bk_set_name" bson:"bk_set_name"`
 	ParentID int64  `json:"bk_parent_id" bson:"bk_parent_id"`
 }
 
-type MainlineTopoAssociation struct {
+type mainlineAssociation struct {
 	AssociateTo string `json:"bk_asst_obj_id" bson:"bk_asst_obj_id"`
 	ObjectID    string `json:"bk_obj_id" bson:"bk_obj_id"`
 }
 
-type CustomInstanceBase struct {
+type customArchive struct {
+	Detail customInstanceBase `json:"detail" bson:"detail"`
+}
+type customInstanceBase struct {
 	ObjectID     string `json:"bk_obj_id" bson:"bk_obj_id"`
 	InstanceID   int64  `json:"bk_inst_id" bson:"bk_inst_id"`
 	InstanceName string `json:"bk_inst_name" bson:"bk_inst_name"`
 	ParentID     int64  `json:"bk_parent_id" bson:"bk_parent_id"`
 }
 
-const mainlineTopologyListDoneKey = "<mainlineTopologyListDoneKey>"
+type watchObserver struct {
+	// key is biz custom object id
+	// value is this watch's stop channel notifier.
+	observer map[string]chan struct{}
+	lock     sync.Mutex
+}
+
+func (w *watchObserver) add(objID string, stopNotifier chan struct{}) {
+	w.lock.Lock()
+	w.observer[objID] = stopNotifier
+	w.lock.Unlock()
+	return
+}
+
+func (w *watchObserver) exist(objID string) bool {
+	w.lock.Lock()
+	_, exist := w.observer[objID]
+	w.lock.Unlock()
+	return exist
+}
+
+func (w *watchObserver) delete(objID string) chan struct{} {
+
+	w.lock.Lock()
+	stopNotifier := w.observer[objID]
+	delete(w.observer, objID)
+	w.lock.Unlock()
+	return stopNotifier
+}
+
+func (w *watchObserver) getAllObjects() []string {
+	all := make([]string, 0)
+	w.lock.Lock()
+	for obj := range w.observer {
+		all = append(all, obj)
+	}
+	w.lock.Unlock()
+
+	return all
+}

@@ -22,33 +22,34 @@ import (
 	"configcenter/src/storage/dal/redis"
 	"configcenter/src/storage/stream"
 	"configcenter/src/storage/stream/types"
+
 	"github.com/tidwall/gjson"
 )
 
-type business struct {
+type set struct {
 	key   keyGenerator
 	event stream.LoopInterface
 	rds   redis.Client
 	db    dal.DB
 }
 
-func (b *business) Run() error {
+func (s *set) Run() error {
 
-	// initialize business token handler key.
-	handler := newTokenHandler(b.key)
+	// initialize set token handler key.
+	handler := newTokenHandler(s.key)
 	startTime, err := handler.getStartTimestamp(context.Background())
 	if err != nil {
-		blog.Errorf("get business cache event start at time failed, err: %v", err)
+		blog.Errorf("get set cache event start at time failed, err: %v", err)
 		return err
 	}
 
 	loopOpts := &types.LoopOneOptions{
 		LoopOptions: types.LoopOptions{
-			Name: "biz_cache",
+			Name: "set_cache",
 			WatchOpt: &types.WatchOptions{
 				Options: types.Options{
 					EventStruct: new(map[string]interface{}),
-					Collection:  common.BKTableNameBaseApp,
+					Collection:  common.BKTableNameBaseSet,
 					// start token will be automatically set when it's running,
 					// so we do not set here.
 					StartAfterToken:         nil,
@@ -63,60 +64,62 @@ func (b *business) Run() error {
 			},
 		},
 		EventHandler: &types.OneHandler{
-			DoAdd:    b.onUpsert,
-			DoUpdate: b.onUpsert,
-			DoDelete: b.onDelete,
+			DoAdd:    s.onUpsert,
+			DoUpdate: s.onUpsert,
+			DoDelete: s.onDelete,
 		},
 	}
 
-	return b.event.WithOne(loopOpts)
+	return s.event.WithOne(loopOpts)
 }
 
-// onUpsert set or update business cache.
-func (b *business) onUpsert(e *types.Event) bool {
+// onUpsert set or update set cache.
+func (s *set) onUpsert(e *types.Event) bool {
 	if blog.V(4) {
-		blog.Infof("received biz cache event, op: %s, doc: %s, rid: %s", e.OperationType, e.DocBytes, e.ID())
+		blog.Infof("received set cache event, op: %s, doc: %s, rid: %s", e.OperationType, e.DocBytes, e.ID())
 	}
 
-	bizID := gjson.GetBytes(e.DocBytes, common.BKAppIDField).Int()
-	if bizID <= 0 {
-		blog.Errorf("received invalid biz event, skip, op: %s, doc: %s, rid: %s", e.OperationType, e.DocBytes, e.ID())
+	setID := gjson.GetBytes(e.DocBytes, common.BKSetIDField).Int()
+	if setID <= 0 {
+		blog.Errorf("received invalid set event, skip, op: %s, doc: %s, rid: %s",
+			e.OperationType, e.DocBytes, e.ID())
 		return false
 	}
 
 	// update the cache.
-	err := b.rds.Set(context.Background(), b.key.detailKey(bizID), e.DocBytes, b.key.detailExpireDuration).Err()
+	err := s.rds.Set(context.Background(), s.key.detailKey(setID), string(e.DocBytes), s.key.detailExpireDuration).Err()
 	if err != nil {
-		blog.Errorf("set biz cache failed, op: %s, doc: %s, err: %v, rid: %s", e.OperationType, e.DocBytes, err, e.ID())
+		blog.Errorf("update set cache failed, op: %s, doc: %s, err: %v, rid: %s",
+			e.OperationType, string(e.DocBytes), err, e.ID())
 		return true
 	}
 
 	return false
 }
 
-// onDelete delete business cache.
-func (b *business) onDelete(e *types.Event) bool {
+// onDelete delete set cache.
+func (s *set) onDelete(e *types.Event) bool {
 
 	filter := mapstr.MapStr{
-		"coll": common.BKTableNameBaseApp,
+		"coll": common.BKTableNameBaseSet,
 		"oid":  e.Oid,
 	}
 
-	biz := new(bizArchive)
-	err := b.db.Table(common.BKTableNameDelArchive).Find(filter).Fields("detail").One(context.Background(), biz)
+	set := new(setArchive)
+	err := s.db.Table(common.BKTableNameDelArchive).Find(filter).Fields("detail").One(context.Background(), set)
 	if err != nil {
-		blog.Errorf("get biz del archive detail failed, err: %v, rid: %s", err, e.ID())
-		if b.db.IsNotFoundError(err) {
+		blog.Errorf("get set del archive detail failed, err: %v, rid: %s", err, e.ID())
+		if s.db.IsNotFoundError(err) {
 			return false
 		}
 		return true
 	}
 
-	blog.Infof("received delete biz %d/%s event, rid: %s", biz.Detail.BusinessID, biz.Detail.BusinessName, e.ID())
+	blog.Infof("received delete set %d/%s event, rid: %s", set.Detail.SetID, set.Detail.SetName, e.ID())
 
 	// delete the cache.
-	if err := b.rds.Del(context.Background(), b.key.detailKey(biz.Detail.BusinessID)).Err(); err != nil {
-		blog.Errorf("delete biz cache failed, err: %v, rid: %s", err, e.ID())
+	if err := s.rds.Del(context.Background(), s.key.detailKey(set.Detail.SetID)).Err(); err != nil {
+		blog.Errorf("delete set cache failed, err: %v, rid: %s", err, e.ID())
 		return true
 	}
 

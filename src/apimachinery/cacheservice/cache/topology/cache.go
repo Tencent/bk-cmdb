@@ -19,7 +19,6 @@ import (
 	"configcenter/src/common"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/metadata"
-	"configcenter/src/source_controller/cacheservice/cache/topo_tree"
 )
 
 // ListBusiness list business with id list and return with a json array string which is []string json.
@@ -157,9 +156,4 @@ func (b *baseCache) SearchCustomLayer(ctx context.Context, h http.Header, objID 
 		return "", errors.New(resp.Code, resp.ErrMsg)
 	}
 	return resp.Data, nil
-}
-
-type broker struct {
-	metadata.BaseResp `json:",inline"`
-	Data              []topo_tree.NodePaths `json:"data"`
 }
