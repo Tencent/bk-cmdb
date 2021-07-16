@@ -21,8 +21,8 @@ import (
 )
 
 type TaskClientInterface interface {
-	// Create  新加任务， name 任务名，flag:任务标识，留给业务方做识别任务, data 每一项任务需要的参数
-	Create(ctx context.Context, header http.Header, name, flag string, data []interface{}) (resp *metadata.CreateTaskResponse, err error)
+	// Create  新加任务， name 任务名，flag:任务标识，留给业务方做识别任务, instID:任务的执行源实例id, data 每一项任务需要的参数
+	Create(ctx context.Context, header http.Header, name, flag string, instID int64, data []interface{}) (resp *metadata.CreateTaskResponse, err error)
 
 	ListTask(ctx context.Context, header http.Header, name string, data *metadata.ListAPITaskRequest) (resp *metadata.ListAPITaskResponse, err error)
 
@@ -30,6 +30,7 @@ type TaskClientInterface interface {
 
 	TaskDetail(ctx context.Context, header http.Header, taskID string) (resp *metadata.TaskDetailResponse, err error)
 
+	DeleteTask(ctx context.Context, header http.Header, taskCond *metadata.DeleteOption) error
 	// TaskStatusToSuccess(ctx context.Context, header http.Header, taskID, subTaskID string) (resp *metadata.Response, err error)
 	// TaskStatusToFailure(ctx context.Context, header http.Header, taskID, subTaskID string, errResponse *metadata.Response) (resp *metadata.Response, err error)
 }

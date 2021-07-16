@@ -93,6 +93,8 @@ func Run(ctx context.Context, cancel context.CancelFunc, op *options.ServerOptio
 	taskSrv.Core = engine
 	taskSrv.Service = service
 
+	//Cron job delete history task
+	go taskSrv.Service.TimerDeleteHistoryTask(ctx)
 	if err := backbone.StartServer(ctx, cancel, engine, service.WebService(), true); err != nil {
 		blog.Errorf("start backbone failed, err: %+v", err)
 		return err
@@ -130,7 +132,7 @@ func (h *TaskServer) onHostConfigUpdate(previous, current cc.ProcessConfig) {
 		}
 		prefix := "taskServer." + name
 
-		strRetry, _ := cc.String(prefix+".retry")
+		strRetry, _ := cc.String(prefix + ".retry")
 		var retry int64 = 0
 		var err error
 		if strRetry != "" {

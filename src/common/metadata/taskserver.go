@@ -9,6 +9,7 @@
  * either express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package metadata
 
 import (
@@ -26,10 +27,13 @@ type CreateTaskRequest struct {
 	// flag task 任务标识，留给业务方做识别任务
 	Flag string `json:"flag"`
 
+	// bk_inst_id 实例id，该任务关联的实例id
+	InstID int64 `json:"bk_inst_id"`
+
 	Data []interface{} `json:"data"`
 }
 
-// APITaskDetail task info detaill
+// APITaskDetail task info detail
 type APITaskDetail struct {
 	// task id
 	TaskID string `json:"task_id" bson:"task_id"`
@@ -37,6 +41,8 @@ type APITaskDetail struct {
 	Name string `json:"name" bson:"name"`
 	// flag task 任务标识，留给业务方做识别任务
 	Flag string `json:"flag" bson:"flag"`
+	// bk_inst_id 实例id，该任务关联的实例id
+	InstID int64 `json:"bk_inst_id" bson:"bk_inst_id"`
 	// task create user
 	User string `json:"user" bson:"user"`
 	//  http header

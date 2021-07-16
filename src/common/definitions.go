@@ -1219,6 +1219,7 @@ const (
 	OptionOther          = "其他"
 	TimerPattern         = "^[\\d]+\\:[\\d]+$"
 	SyncSetTaskName      = "sync-settemplate2set"
+	SyncSetTaskFlag      = "set_template_sync"
 
 	BKHostState = "bk_state"
 )

@@ -191,7 +191,6 @@ func (st *setTemplate) SyncSetTplToInst(kit *rest.Kit, bizID int64, setTemplateI
 	}
 
 	for _, setDiff := range setDiffs {
-		indexKey := metadata.GetSetTemplateSyncIndex(setDiff.SetID)
 		blog.V(3).Infof("dispatch synchronize task on set [%s](%d), rid: %s",
 			setDiff.SetDetail.SetName, setDiff.SetID, kit.Rid)
 		tasks := make([]metadata.SyncModuleTask, 0)
@@ -203,7 +202,7 @@ func (st *setTemplate) SyncSetTplToInst(kit *rest.Kit, bizID int64, setTemplateI
 			}
 			tasks = append(tasks, task)
 		}
-		taskDetail, err := st.DispatchTask4ModuleSync(kit, indexKey, tasks...)
+		taskDetail, err := st.DispatchTask4ModuleSync(kit, common.SyncSetTaskFlag, setDiff.SetID, tasks...)
 		if err != nil {
 			return err
 		}
@@ -262,7 +261,7 @@ func (st *setTemplate) SyncSetTplToInst(kit *rest.Kit, bizID int64, setTemplateI
 	return nil
 }
 
-func (st *setTemplate) DispatchTask4ModuleSync(kit *rest.Kit, indexKey string,
+func (st *setTemplate) DispatchTask4ModuleSync(kit *rest.Kit, indexKey string, setID int64,
 	tasks ...metadata.SyncModuleTask) (metadata.APITaskDetail, errors.CCErrorCoder) {
 	taskDetail := metadata.APITaskDetail{}
 	tasksData := make([]interface{}, 0)
@@ -270,7 +269,7 @@ func (st *setTemplate) DispatchTask4ModuleSync(kit *rest.Kit, indexKey string,
 		tasksData = append(tasksData, task)
 	}
 	createTaskResult, err := st.client.TaskServer().Task().
-		Create(kit.Ctx, kit.Header, common.SyncSetTaskName, indexKey, tasksData)
+		Create(kit.Ctx, kit.Header, common.SyncSetTaskName, indexKey, setID, tasksData)
 	if err != nil {
 		blog.ErrorJSON("dispatch synchronize task failed, task: %s, err: %s, rid: %s", tasks, err.Error(), kit.Rid)
 		return taskDetail, errors.CCHttpError

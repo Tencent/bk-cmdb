@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/xid"
-
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
+
+	"github.com/rs/xid"
 )
 
 // Create add task
@@ -44,6 +44,7 @@ func (lgc *Logics) Create(ctx context.Context, input *metadata.CreateTaskRequest
 	dbTask.Name = input.Name
 	dbTask.User = lgc.user
 	dbTask.Flag = input.Flag
+	dbTask.InstID = input.InstID
 	dbTask.Header = GetDBHTTPHeader(lgc.header)
 	dbTask.Status = metadata.APITaskStatusNew
 	dbTask.CreateTime = time.Now()
@@ -92,22 +93,34 @@ func (lgc *Logics) List(ctx context.Context, name string, input *metadata.ListAP
 // ListLatestTask list latest task
 func (lgc *Logics) ListLatestTask(ctx context.Context, name string,
 	input *metadata.ListAPITaskLatestRequest) ([]metadata.APITaskDetail, error) {
-
-	input.Condition.Set("name", name)
-
 	/*
 		aggregateCond parameter of aggregate to search the latest created task in input.Condition need.
 		because multiple results of the same task may be at the front end of sorting by
 		create_time field, use group to get the first result of each task
 	*/
-	aggregateCond := []interface{}{
-		map[string]interface{}{common.BKDBMatch: input.Condition},
-		map[string]interface{}{common.BKDBSort: map[string]interface{}{common.CreateTimeField: -1}},
-		map[string]interface{}{common.BKDBGroup: map[string]interface{}{
-			"_id": "$flag",
+	aggregateCond := []map[string]interface{}{
+		{common.BKDBSort: map[string]interface{}{common.CreateTimeField: -1}},
+		{common.BKDBGroup: map[string]interface{}{
+			"_id": "$bk_inst_id",
 			"doc": map[string]interface{}{"$first": "$$ROOT"},
 		}},
-		map[string]interface{}{common.BKDBReplaceRoot: map[string]interface{}{"newRoot": "$doc"}},
+		{common.BKDBReplaceRoot: map[string]interface{}{"newRoot": "$doc"}},
+	}
+
+	if input == nil {
+		input = &metadata.ListAPITaskLatestRequest{}
+	}
+
+	if input.Condition == nil {
+		input.Condition = mapstr.New()
+	}
+
+	if len(name) != 0 {
+		input.Condition.Set("name", name)
+	}
+
+	if len(input.Condition) != 0 {
+		aggregateCond = append([]map[string]interface{}{{common.BKDBMatch: input.Condition}}, aggregateCond...)
 	}
 
 	if len(input.Fields) != 0 {
@@ -122,7 +135,7 @@ func (lgc *Logics) ListLatestTask(ctx context.Context, name string,
 
 	result := make([]metadata.APITaskDetail, 0)
 	if err := lgc.db.Table(common.BKTableNameAPITask).AggregateAll(ctx, aggregateCond, &result); err != nil {
-		blog.Errorf("list latest task failed, err: %v, rid: %v", err, lgc.rid)
+		blog.Errorf("list latest task failed, aggregateCond: %v, err: %v, rid: %v", aggregateCond, err, lgc.rid)
 		return nil, err
 	}
 
@@ -145,6 +158,21 @@ func (lgc *Logics) Detail(ctx context.Context, taskID string) (*metadata.APITask
 		return nil, nil
 	}
 	return &rows[0], nil
+}
+
+func (lgc *Logics) DeleteTask(ctx context.Context, taskCond *metadata.DeleteOption) error {
+	if len(taskCond.Condition) == 0 {
+		blog.Errorf("task condition is empty, rid: %s", lgc.rid)
+		return lgc.ccErr.CCErrorf(common.CCErrCommInstDataNil, "task condition")
+	}
+
+	err := lgc.db.Table(common.BKTableNameAPITask).Delete(ctx, taskCond.Condition)
+	if err != nil {
+		blog.Errorf("delete task failed, err: %s, rid: %s", err.Error(), lgc.rid)
+		return err
+	}
+
+	return nil
 }
 
 // ChangeStatusToSuccess task status change to success
