@@ -109,7 +109,8 @@ var ActionIDNameMap = map[ActionID]string{
 	WatchSetEvent:                       "集群事件监听",
 	WatchModuleEvent:                    "模块数据监听",
 	WatchProcessEvent:                   "进程数据监听",
-	WatchCommonInstanceEvent:            "通用模型实例数据监听",
+	WatchCommonInstanceEvent:            "模型实例事件监听",
+	WatchMainlineInstanceEvent:          "自定义拓扑层级事件监听",
 	GlobalSettings:                      "全局设置",
 }
 
@@ -1223,12 +1224,54 @@ func genEventWatchActions() []ResourceAction {
 		Version:              1,
 	})
 
+	modelSelection := []RelatedInstanceSelection{{
+		SystemID: SystemIDCMDB,
+		ID:       SysModelEventSelection,
+	}}
+
+	modelResource := []RelateResourceType{
+		{
+			SystemID:           SystemIDCMDB,
+			ID:                 SysModelEvent,
+			NameAlias:          "",
+			NameAliasEn:        "",
+			Scope:              nil,
+			InstanceSelections: modelSelection,
+		},
+	}
+
 	actions = append(actions, ResourceAction{
 		ID:                   WatchCommonInstanceEvent,
 		Name:                 ActionIDNameMap[WatchCommonInstanceEvent],
-		NameEn:               "Common Object Instance Event Listen",
+		NameEn:               "Common Model Instance Event Listen",
 		Type:                 View,
-		RelatedResourceTypes: nil,
+		RelatedResourceTypes: modelResource,
+		RelatedActions:       nil,
+		Version:              1,
+	})
+
+	mainlineModelSelection := []RelatedInstanceSelection{{
+		SystemID: SystemIDCMDB,
+		ID:       MainlineModelEventSelection,
+	}}
+
+	mainlineModelResource := []RelateResourceType{
+		{
+			SystemID:           SystemIDCMDB,
+			ID:                 MainlineModelEvent,
+			NameAlias:          "",
+			NameAliasEn:        "",
+			Scope:              nil,
+			InstanceSelections: mainlineModelSelection,
+		},
+	}
+
+	actions = append(actions, ResourceAction{
+		ID:                   WatchMainlineInstanceEvent,
+		Name:                 ActionIDNameMap[WatchMainlineInstanceEvent],
+		NameEn:               "Custom Topo Layer Event Listen",
+		Type:                 View,
+		RelatedResourceTypes: mainlineModelResource,
 		RelatedActions:       nil,
 		Version:              1,
 	})

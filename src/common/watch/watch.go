@@ -29,11 +29,16 @@ type WatchEventOptions struct {
 	// the cursor you hold previous, means you want to watch event form here.
 	Cursor string `json:"bk_cursor"`
 	// the resource kind you want to watch
-	Resource CursorType `json:"bk_resource"`
+	Resource CursorType       `json:"bk_resource"`
+	Filter   WatchEventFilter `json:"bk_filter"`
+}
+
+type WatchEventFilter struct {
+	// SubResource the sub resource you want to watch, eg. object ID of the instance resource, watch all if not set
+	SubResource string `json:"bk_sub_resource,omitempty"`
 }
 
 func (w *WatchEventOptions) Validate() error {
-
 	if len(w.EventTypes) != 0 {
 		for _, e := range w.EventTypes {
 			if err := e.Validate(); err != nil {
@@ -52,6 +57,14 @@ func (w *WatchEventOptions) Validate() error {
 	// use either StartFrom or Cursor.
 	if w.StartFrom != 0 && len(w.Cursor) != 0 {
 		return errors.New("bk_start_from and bk_cursor can not use at the same time")
+	}
+
+	if len(w.Filter.SubResource) > 0 {
+		switch w.Resource {
+		case ObjectBase, MainlineInstance:
+		default:
+			return fmt.Errorf("%s event cannot have sub resource", w.Resource)
+		}
 	}
 
 	return nil

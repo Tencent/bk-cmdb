@@ -76,7 +76,7 @@ func (c *Client) WatchWithStartFrom(kit *rest.Kit, key event.Key, opts *watch.Wa
 
 	// start from is ahead of the latest's event time, watch from now.
 	if int64(tailNode.ClusterTime.Sec) <= opts.StartFrom {
-		if !c.isNodeWithEventType(tailNode, opts.EventTypes) {
+		if !c.isNodeHitEventType(tailNode, opts.EventTypes) || !c.isNodeHitSubResource(tailNode, opts.Filter.SubResource) {
 			// not matched, set to no event cursor with empty detail
 			return []*watch.WatchEventDetail{{
 				Cursor:    watch.NoEventCursor,
@@ -142,14 +142,21 @@ func (c *Client) WatchWithStartFrom(kit *rest.Kit, key event.Key, opts *watch.Wa
 		}}, nil
 	}
 
-	nodes, err := c.searchFollowingEventChainNodesByID(kit, node.ID, eventStep, opts.EventTypes, key)
+	searchOpt := &searchFollowingChainNodesOption{
+		id:          node.ID,
+		limit:       eventStep,
+		types:       opts.EventTypes,
+		key:         key,
+		subResource: opts.Filter.SubResource,
+	}
+	nodes, err := c.searchFollowingEventChainNodesByID(kit, searchOpt)
 	if err != nil {
 		blog.ErrorJSON("get event failed, err: %s, rid: %s, filter: %s", err, rid, filter)
 		return nil, err
 	}
 
 	// since the first node is after the start time, we need to include it in the nodes after the start time
-	if c.isNodeWithEventType(node, opts.EventTypes) {
+	if c.isNodeHitEventType(node, opts.EventTypes) && c.isNodeHitSubResource(node, opts.Filter.SubResource) {
 		nodes = append([]*watch.ChainNode{node}, nodes...)
 	}
 
@@ -331,7 +338,7 @@ func (c *Client) getHostIdentityEventDetailWithNodes(kit *rest.Kit, hitNodes []*
 	return details, nil
 }
 
-// WatchFromNow watches target resource events from noc.
+// WatchFromNow watches target resource events from now.
 func (c *Client) WatchFromNow(kit *rest.Kit, key event.Key, opts *watch.WatchEventOptions) (
 	*watch.WatchEventDetail, error) {
 
@@ -353,7 +360,7 @@ func (c *Client) WatchFromNow(kit *rest.Kit, key event.Key, opts *watch.WatchEve
 		}, nil
 	}
 
-	if !c.isNodeWithEventType(node, opts.EventTypes) {
+	if !c.isNodeHitEventType(node, opts.EventTypes) || !c.isNodeHitSubResource(node, opts.Filter.SubResource) {
 		// not matched, set to no event cursor with empty detail
 		return &watch.WatchEventDetail{
 			Cursor:    watch.NoEventCursor,
@@ -408,7 +415,14 @@ func (c *Client) WatchWithCursor(kit *rest.Kit, key event.Key, opts *watch.Watch
 	rid := kit.Rid
 	start := time.Now().Unix()
 
-	exists, nodes, nodeID, err := c.searchFollowingEventChainNodes(kit, opts.Cursor, eventStep, opts.EventTypes, key)
+	searchOpt := &searchFollowingChainNodesOption{
+		startCursor: opts.Cursor,
+		limit:       eventStep,
+		types:       opts.EventTypes,
+		key:         key,
+		subResource: opts.Filter.SubResource,
+	}
+	exists, nodes, nodeID, err := c.searchFollowingEventChainNodes(kit, searchOpt)
 	if err != nil {
 		blog.Errorf("search nodes after cursor %s failed, err: %v, rid: %s", opts.Cursor, err, kit.Rid)
 		return nil, err
@@ -457,7 +471,8 @@ func (c *Client) WatchWithCursor(kit *rest.Kit, key event.Key, opts *watch.Watch
 			}
 		}
 
-		nodes, err = c.searchFollowingEventChainNodesByID(kit, nodeID, eventStep, opts.EventTypes, key)
+		searchOpt.id = nodeID
+		nodes, err = c.searchFollowingEventChainNodesByID(kit, searchOpt)
 		if err != nil {
 			blog.Errorf("watch event from cursor: %s failed, err: %v, rid: %s", opts.Cursor, err, rid)
 			return nil, err
@@ -465,7 +480,7 @@ func (c *Client) WatchWithCursor(kit *rest.Kit, key event.Key, opts *watch.Watch
 	}
 }
 
-func (c *Client) isNodeWithEventType(node *watch.ChainNode, types []watch.EventType) bool {
+func (c *Client) isNodeHitEventType(node *watch.ChainNode, types []watch.EventType) bool {
 	if len(types) == 0 {
 		return true
 	}
@@ -474,6 +489,19 @@ func (c *Client) isNodeWithEventType(node *watch.ChainNode, types []watch.EventT
 		if node.EventType == eventType {
 			return true
 		}
+	}
+	return false
+}
+
+// isNodeHitSubResource check if node hit the sub resource, not specifying sub resource means matching all and is hit
+// only used for common and mainline instances that contains sub resource
+func (c *Client) isNodeHitSubResource(node *watch.ChainNode, subResource string) bool {
+	if len(subResource) == 0 {
+		return true
+	}
+
+	if node.SubResource == subResource {
+		return true
 	}
 	return false
 }

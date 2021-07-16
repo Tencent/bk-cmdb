@@ -131,6 +131,13 @@ func (s *Service) createWatchDBChainCollections(rid string) error {
 				ExpireAfterSeconds: dbChainTTLTime},
 		}
 
+		if cursorType == watch.ObjectBase || cursorType == watch.MainlineInstance {
+			subResourceIndex := daltypes.Index{
+				Name: "index_sub_resource", Keys: map[string]int32{common.BKSubResourceField: 1}, Background: true,
+			}
+			indexes = append(indexes, subResourceIndex)
+		}
+
 		existIndexArr, err := s.watchDB.Table(key.ChainCollection()).Indexes(s.ctx)
 		if err != nil {
 			blog.Errorf("get exist indexes for table %s failed, err: %v, rid: %s", key.ChainCollection(), err, rid)

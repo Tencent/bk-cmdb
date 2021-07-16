@@ -65,6 +65,8 @@ const (
 	// a mixed event type, which contains host, host relation, process events etc.
 	// and finally converted to host identifier event.
 	HostIdentifier CursorType = "host_identifier"
+	// MainlineInstance specified for mainline instance event watch, filtered from object instance events
+	MainlineInstance CursorType = "mainline_instance"
 )
 
 func (ct CursorType) ToInt() int {
@@ -89,6 +91,8 @@ func (ct CursorType) ToInt() int {
 		return 10
 	case HostIdentifier:
 		return 11
+	case MainlineInstance:
+		return 12
 	default:
 		return -1
 	}
@@ -116,6 +120,8 @@ func (ct *CursorType) ParseInt(typ int) {
 		*ct = ProcessInstanceRelation
 	case 11:
 		*ct = HostIdentifier
+	case 12:
+		*ct = MainlineInstance
 	default:
 		*ct = UnknownType
 	}
@@ -124,7 +130,7 @@ func (ct *CursorType) ParseInt(typ int) {
 // ListCursorTypes returns all support CursorTypes.
 func ListCursorTypes() []CursorType {
 	return []CursorType{Host, ModuleHostRelation, Biz, Set, Module, ObjectBase, Process,
-		ProcessInstanceRelation, HostIdentifier}
+		ProcessInstanceRelation, HostIdentifier, MainlineInstance}
 }
 
 // ListEventCallbackCursorTypes returns all support CursorTypes for event callback.
@@ -296,6 +302,8 @@ func GetEventCursor(coll string, e *types.Event, instID int64) (string, error) {
 		curType = Module
 	case common.BKTableNameBaseInst:
 		curType = ObjectBase
+	case common.BKTableNameMainlineInstance:
+		curType = MainlineInstance
 	case common.BKTableNameBaseProcess:
 		curType = Process
 	case common.BKTableNameProcessInstanceRelation:
@@ -312,7 +320,7 @@ func GetEventCursor(coll string, e *types.Event, instID int64) (string, error) {
 		Oper:        e.OperationType,
 	}
 
-	if curType == ObjectBase {
+	if curType == ObjectBase || curType == MainlineInstance {
 		if instID <= 0 {
 			return "", errors.New("invalid instance id")
 		}

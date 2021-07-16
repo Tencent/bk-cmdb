@@ -18,7 +18,11 @@ import (
 	"regexp"
 
 	"configcenter/src/ac/meta"
+	"configcenter/src/common"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/watch"
+
+	"github.com/tidwall/gjson"
 )
 
 func (ps *parseStream) eventRelated() *parseStream {
@@ -53,14 +57,34 @@ func (ps *parseStream) watch() *parseStream {
 			resource = string(watch.Host)
 		}
 
-		ps.Attribute.Resources = []meta.ResourceAttribute{
-			{
-				Basic: meta.Basic{
-					Type:   meta.EventWatch,
-					Action: meta.Action(resource),
-				},
+		authResource := meta.ResourceAttribute{
+			Basic: meta.Basic{
+				Type:   meta.EventWatch,
+				Action: meta.Action(resource),
 			},
 		}
+
+		if resource == string(watch.ObjectBase) || resource == string(watch.MainlineInstance) {
+			body, err := ps.RequestCtx.getRequestBody()
+			if err != nil {
+				ps.err = err
+				return ps
+			}
+
+			// use sub resource(corresponding to the bk_obj_id of the object) for authorization if it is set
+			// if sub resource is not set, verify authorization of the resource(which means all sub resources)
+			subResource := gjson.GetBytes(body, common.BKSubResourceField)
+			if subResource.Exists() {
+				model, err := ps.getOneModel(mapstr.MapStr{common.BKObjIDField: subResource.String()})
+				if err != nil {
+					ps.err = err
+					return ps
+				}
+				authResource.InstanceID = model.ID
+			}
+		}
+
+		ps.Attribute.Resources = append(ps.Attribute.Resources, authResource)
 		return ps
 	}
 

@@ -165,8 +165,37 @@ func genProcessServiceCategoryResource(_ ActionID, _ TypeID, att *meta.ResourceA
 	return []types.Resource{r}, nil
 }
 
-func genResourceWatch(_ ActionID, typ TypeID, _ *meta.ResourceAttribute) ([]types.Resource, error) {
-	return make([]types.Resource, 0), nil
+func genResourceWatch(act ActionID, typ TypeID, att *meta.ResourceAttribute) ([]types.Resource, error) {
+	switch act {
+	case WatchCommonInstanceEvent:
+		r := types.Resource{
+			System:    SystemIDCMDB,
+			Attribute: nil,
+		}
+
+		// do not related to instance authorize
+		r.Type = types.ResourceType(SysModelEvent)
+		if att.InstanceID > 0 {
+			r.ID = strconv.FormatInt(att.InstanceID, 10)
+		}
+		return []types.Resource{r}, nil
+
+	case WatchMainlineInstanceEvent:
+		r := types.Resource{
+			System:    SystemIDCMDB,
+			Attribute: nil,
+		}
+
+		// do not related to instance authorize
+		r.Type = types.ResourceType(MainlineModelEvent)
+		if att.InstanceID > 0 {
+			r.ID = strconv.FormatInt(att.InstanceID, 10)
+		}
+		return []types.Resource{r}, nil
+
+	default:
+		return make([]types.Resource, 0), nil
+	}
 }
 
 func genServiceTemplateResource(act ActionID, typ TypeID, att *meta.ResourceAttribute) ([]types.Resource, error) {

@@ -99,6 +99,9 @@ const (
 
 	// BKTableNameWatchToken the table to store the latest watch token for collections
 	BKTableNameWatchToken = "cc_WatchToken"
+
+	// BKTableNameMainlineInstance is a virtual collection name which represent for mainline instance events
+	BKTableNameMainlineInstance = "cc_MainlineInstance"
 )
 
 // AllTables is all table names, not include the sharding tables which is created dynamically,

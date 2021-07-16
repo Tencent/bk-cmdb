@@ -52,46 +52,6 @@ type ListHostWithPage struct {
 	Page BasePage `json:"page"`
 }
 
-type GetLatestEventOption struct {
-	Resource watch.CursorType `json:"bk_resource"`
-}
-
-type SearchEventNodesOption struct {
-	Resource    watch.CursorType `json:"bk_resource"`
-	StartCursor string           `json:"start_cursor"`
-	Limit       int              `json:"limit"`
-}
-
-type SearchEventDetailsOption struct {
-	Resource watch.CursorType `json:"bk_resource"`
-	Cursors  []string         `json:"cursors"`
-}
-
-type SearchEventNodeResp struct {
-	BaseResp `json:",inline"`
-	Data     *EventNode `json:"data"`
-}
-
-type EventNode struct {
-	Node       *watch.ChainNode `json:"node"`
-	ExistsNode bool             `json:"exists_node"`
-}
-
-type EventNodes struct {
-	Nodes           []*watch.ChainNode `json:"nodes"`
-	ExistsStartNode bool               `json:"exists_start_node"`
-}
-
-type SearchEventNodesResp struct {
-	BaseResp `json:",inline"`
-	Data     *EventNodes `json:"data"`
-}
-
-type SearchEventDetailsResp struct {
-	BaseResp `json:",inline"`
-	Data     []string `json:"data"`
-}
-
 type WatchEventResp struct {
 	BaseResp `json:",inline"`
 	Data     *watch.WatchResp `json:"data"`

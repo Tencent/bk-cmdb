@@ -220,5 +220,27 @@ func GenerateInstanceSelections() []InstanceSelection {
 				},
 			},
 		},
+		{
+			ID:     SysModelEventSelection,
+			Name:   "模型事件列表",
+			NameEn: "Model Event List",
+			ResourceTypeChain: []ResourceChain{
+				{
+					SystemID: SystemIDCMDB,
+					ID:       SysModelEvent,
+				},
+			},
+		},
+		{
+			ID:     MainlineModelEventSelection,
+			Name:   "自定义拓扑层级列表",
+			NameEn: "Custom Topo Layer Event List",
+			ResourceTypeChain: []ResourceChain{
+				{
+					SystemID: SystemIDCMDB,
+					ID:       MainlineModelEvent,
+				},
+			},
+		},
 	}
 }

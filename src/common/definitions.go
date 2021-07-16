@@ -624,6 +624,7 @@ const (
 	BKClusterTimeField = "cluster_time"
 	BKEventTypeField   = "type"
 	BKStartAtTimeField = "start_at_time"
+	BKSubResourceField = "bk_sub_resource"
 )
 
 const (
