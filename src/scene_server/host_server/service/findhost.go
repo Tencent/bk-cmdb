@@ -13,17 +13,16 @@
 package service
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
-	"configcenter/src/common/condition"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/http/rest"
 	"configcenter/src/common/mapstr"
 	meta "configcenter/src/common/metadata"
-	parse "configcenter/src/common/paraparse"
 	"configcenter/src/common/util"
 )
 
@@ -548,62 +547,61 @@ func (s *Service) listBizHosts(ctx *rest.Contexts, bizID int64, parameter meta.L
 		return result, defErr.CCErrorf(common.CCErrCommParamsInvalid, "bk_set_ids and set_cond can't both be set")
 	}
 
+	if len(parameter.ModuleIDs) != 0 && len(parameter.ModuleCond) != 0 {
+		blog.Errorf("list biz hosts failed, bk_module_ids and module_cond can't both be set, rid: %s", ctx.Kit.Rid)
+		return result, defErr.CCErrorf(common.CCErrCommParamsInvalid, "bk_module_ids and module_cond can't both be set")
+	}
+
 	setIDList := make([]int64, 0)
 	if parameter.SetCond != nil {
-		setCond := make(map[string]interface{})
-		if err := parse.ParseCommonParams(parameter.SetCond, setCond); err != nil {
-			blog.Errorf("parse set cond failed, err: %v, rid: %s", err, rid)
-			return nil, errors.New(common.CCErrCommParamsInvalid, "set_cond")
-		}
-
 		// set the app id condition
-		setCond[common.BKAppIDField] = bizID
-		query := meta.QueryCondition{
-			Fields:    []string{common.BKSetIDField},
-			Condition: setCond,
+		parameter.SetCond = append(parameter.SetCond, meta.ConditionItem{
+			Field:    common.BKAppIDField,
+			Operator: common.BKDBEQ,
+			Value:    bizID,
+		})
+
+		setIDList, ccErr = s.Logic.GetInstIDs(ctx.Kit, common.BKInnerObjIDSet, parameter.SetCond)
+		if ccErr != nil {
+			return nil, ccErr
 		}
 
-		setList, setErr := s.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, header, common.BKInnerObjIDSet, &query)
-		if setErr != nil {
-			blog.Errorf("get set with cond: %v failed, err: %v, rid: %s", setCond, setErr, rid)
-			return nil, errors.New(common.CCErrCommParamsInvalid, "set_cond")
-		}
-
-		if !setList.Result {
-			blog.Errorf("get set with cond: %v failed, err: %v, rid: %s", setCond, setErr, rid)
-			return nil, errors.New(setList.Code, setList.ErrMsg)
-		}
-
-		if len(setList.Data.Info) == 0 {
-			return &meta.ListHostResult{
-				Count: 0,
-				Info:  []map[string]interface{}{},
-			}, nil
-		}
-
-		for _, set := range setList.Data.Info {
-			id, err := util.GetInt64ByInterface(set[common.BKSetIDField])
-			if err != nil {
-				blog.Errorf("get set id: %v failed, err: %v, rid: %s", set[common.BKSetIDField], err, rid)
-				return nil, errors.New(common.CCErrCommParamsInvalid, "bk_set_id")
-			}
-
-			if id == 0 {
-				continue
-			}
-
-			setIDList = append(setIDList, id)
+		if len(setIDList) == 0 {
+			return &meta.ListHostResult{Count: 0, Info: []map[string]interface{}{}}, nil
 		}
 	}
 
 	if len(parameter.SetIDs) != 0 {
-		setIDList = append(setIDList, parameter.SetIDs...)
+		setIDList = parameter.SetIDs
+	}
+
+	moduleIDList := make([]int64, 0)
+	if parameter.ModuleCond != nil {
+		// set the app id condition
+		parameter.ModuleCond = append(parameter.ModuleCond, meta.ConditionItem{
+			Field:    common.BKAppIDField,
+			Operator: common.BKDBEQ,
+			Value:    bizID,
+		})
+
+		moduleIDList, ccErr = s.Logic.GetInstIDs(ctx.Kit, common.BKInnerObjIDModule, parameter.ModuleCond)
+		if ccErr != nil {
+			return nil, ccErr
+		}
+
+		if len(moduleIDList) == 0 {
+			return &meta.ListHostResult{Count: 0, Info: []map[string]interface{}{}}, nil
+		}
+	}
+
+	if len(parameter.ModuleIDs) != 0 {
+		moduleIDList = parameter.ModuleIDs
 	}
 
 	option := &meta.ListHosts{
 		BizID:              bizID,
 		SetIDs:             setIDList,
-		ModuleIDs:          parameter.ModuleIDs,
+		ModuleIDs:          moduleIDList,
 		HostPropertyFilter: parameter.HostPropertyFilter,
 		Fields:             parameter.Fields,
 		Page:               parameter.Page,
@@ -655,50 +653,81 @@ func (s *Service) ListHostsWithNoBiz(ctx *rest.Contexts) {
 
 // ListBizHostsTopo list hosts under business specified by path parameter with their topology information
 func (s *Service) ListBizHostsTopo(ctx *rest.Contexts) {
-	header := ctx.Kit.Header
-	rid := ctx.Kit.Rid
-	defErr := ctx.Kit.CCError
+	bizID, err := util.GetInt64ByInterface(ctx.Request.PathParameter(common.BKAppIDField))
+	if err != nil {
+		ctx.RespAutoError(ctx.Kit.CCError.Errorf(common.CCErrCommParamsInvalid, common.BKAppIDField))
+		return
+	}
 
-	parameter := &meta.ListHostsWithNoBizParameter{}
+	if bizID == 0 {
+		ctx.RespAutoError(ctx.Kit.CCError.Errorf(common.CCErrCommParamsInvalid, common.BKAppIDField))
+		return
+	}
+
+	parameter := &meta.ListBizHostsTopoParameter{}
 	if err := ctx.DecodeInto(&parameter); nil != err {
 		ctx.RespAutoError(err)
 		return
 	}
 
-	if key, err := parameter.Validate(); err != nil {
-		blog.ErrorJSON("ListHostByTopoNode failed, Validate failed,parameter:%s, err: %s, rid:%s", parameter, err, ctx.Kit.Rid)
-		ccErr := defErr.CCErrorf(common.CCErrCommParamsInvalid, key)
-		ctx.RespAutoError(ccErr)
-		return
-	}
-	bizID, err := util.GetInt64ByInterface(ctx.Request.PathParameter("bk_biz_id"))
-	if err != nil {
-		ctx.RespAutoError(defErr.Errorf(common.CCErrCommParamsInvalid, "bk_app_id"))
-		return
-	}
-	if bizID == 0 {
-		ctx.RespAutoError(defErr.Errorf(common.CCErrCommParamsInvalid, "bk_app_id"))
-		return
-	}
-
-	if parameter.Page.IsIllegal() {
-		blog.Errorf("ListHostByTopoNode failed, page limit %d illegal, rid:%s", parameter.Page.Limit, ctx.Kit.Rid)
-		ctx.RespAutoError(defErr.CCErrorf(common.CCErrCommParamsInvalid, "page.limit"))
+	if err := parameter.Validate(ctx.Kit.CCError); err != nil {
+		blog.ErrorJSON("list biz host topo but input %s is invalid, err: %s, rid: %s", parameter, err, ctx.Kit.Rid)
+		ctx.RespAutoError(err)
 		return
 	}
 
 	ctx.SetReadPreference(common.SecondaryPreferredMode)
+
+	// if set filter or module filter is set, search them first to get ids to filter hosts
+	filteredSetIDs := make([]int64, 0)
+	setMap := make(map[int64]string)
+	if parameter.SetPropertyFilter != nil {
+		setFilter, key, err := parameter.SetPropertyFilter.ToMgo()
+		if err != nil {
+			blog.ErrorJSON("set filter %s is invalid, err: %s, rid: %s", parameter.SetPropertyFilter, err, ctx.Kit.Rid)
+			ctx.RespAutoError(ctx.Kit.CCError.Errorf(common.CCErrCommParamsInvalid, fmt.Sprintf("set_property_filter.%s", key)))
+			return
+		}
+
+		setMap, filteredSetIDs, err = s.Logic.GetInstIDNameInfo(ctx.Kit, common.BKInnerObjIDSet, setFilter)
+		if err != nil {
+			blog.ErrorJSON("get set by filter(%s) failed, err: %s, rid: %s", parameter.SetPropertyFilter, err, ctx.Kit.Rid)
+			ctx.RespAutoError(err)
+			return
+		}
+	}
+
+	filteredModuleIDs := make([]int64, 0)
+	moduleMap := make(map[int64]string)
+	if parameter.ModulePropertyFilter != nil {
+		moduleFilter, key, err := parameter.ModulePropertyFilter.ToMgo()
+		if err != nil {
+			blog.ErrorJSON("set filter %s is invalid, err: %s, rid: %s", parameter.ModulePropertyFilter, err, ctx.Kit.Rid)
+			ctx.RespAutoError(ctx.Kit.CCError.Errorf(common.CCErrCommParamsInvalid, fmt.Sprintf("module_property_filter.%s", key)))
+			return
+		}
+
+		moduleMap, filteredModuleIDs, err = s.Logic.GetInstIDNameInfo(ctx.Kit, common.BKInnerObjIDModule, moduleFilter)
+		if err != nil {
+			blog.ErrorJSON("get module by filter(%s) failed, err: %s, rid: %s", parameter.ModulePropertyFilter, err, ctx.Kit.Rid)
+			ctx.RespAutoError(err)
+			return
+		}
+	}
+
 	// search all hosts
 	option := &meta.ListHosts{
 		BizID:              bizID,
+		SetIDs:             filteredSetIDs,
+		ModuleIDs:          filteredModuleIDs,
 		HostPropertyFilter: parameter.HostPropertyFilter,
 		Fields:             append(parameter.Fields, common.BKHostIDField),
 		Page:               parameter.Page,
 	}
-	hosts, err := s.CoreAPI.CoreService().Host().ListHosts(ctx.Kit.Ctx, header, option)
+	hosts, err := s.CoreAPI.CoreService().Host().ListHosts(ctx.Kit.Ctx, ctx.Kit.Header, option)
 	if err != nil {
-		blog.Errorf("find host failed, err: %s, input:%#v, rid:%s", err.Error(), parameter, rid)
-		ctx.RespAutoError(defErr.Error(common.CCErrHostGetFail))
+		blog.Errorf("find host failed, err: %s, input:%#v, rid: %s", err.Error(), parameter, ctx.Kit.Rid)
+		ctx.RespAutoError(ctx.Kit.CCError.Error(common.CCErrHostGetFail))
 		return
 	}
 
@@ -712,12 +741,13 @@ func (s *Service) ListBizHostsTopo(ctx *rest.Contexts) {
 	for _, host := range hosts.Info {
 		hostID, err := util.GetInt64ByInterface(host[common.BKHostIDField])
 		if err != nil {
-			blog.ErrorJSON("host: %s bk_host_id field invalid, rid:%s", host, rid)
+			blog.ErrorJSON("host: %s bk_host_id field invalid, rid: %s", host, ctx.Kit.Rid)
 			ctx.RespAutoError(err)
 			return
 		}
 		hostIDs = append(hostIDs, hostID)
 	}
+
 	relationCond := meta.HostModuleRelationRequest{
 		ApplicationID: bizID,
 		HostIDArr:     hostIDs,
@@ -730,7 +760,7 @@ func (s *Service) ListBizHostsTopo(ctx *rest.Contexts) {
 		return
 	}
 
-	// search all module and set info
+	// generate host to set and module relation map
 	setIDs := make([]int64, 0)
 	moduleIDs := make([]int64, 0)
 	relation := make(map[int64]map[int64][]int64)
@@ -746,65 +776,55 @@ func (s *Service) ListBizHostsTopo(ctx *rest.Contexts) {
 			relation[r.HostID] = setModule
 		}
 	}
-	setIDs = util.IntArrayUnique(setIDs)
-	moduleIDs = util.IntArrayUnique(moduleIDs)
 
-	cond := condition.CreateCondition()
-	cond.Field(common.BKSetIDField).In(setIDs)
-	query := &meta.QueryCondition{
-		Fields:    []string{common.BKSetIDField, common.BKSetNameField},
-		Condition: cond.ToMapStr(),
-	}
-	sets, err := s.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, header, common.BKInnerObjIDSet, query)
-	if err != nil {
-		blog.ErrorJSON("get set by condition: %s failed, err: %s, rid: %s", cond.ToMapStr(), err, rid)
-		ctx.RespAutoError(err)
-		return
-	}
-	setMap := make(map[int64]string)
-	for _, set := range sets.Data.Info {
-		setID, err := set.Int64(common.BKSetIDField)
-		if err != nil {
-			blog.ErrorJSON("set %s id invalid, error: %s, rid: %s", set, err, rid)
-			ctx.RespAutoError(err)
-			return
+	// search all module and set info that is not already searched before
+	otherSetIDs := make([]int64, 0)
+	if len(filteredSetIDs) == 0 {
+		otherSetIDs = util.IntArrayUnique(setIDs)
+	} else {
+		for _, setID := range setIDs {
+			if _, exists := setMap[setID]; !exists {
+				otherSetIDs = append(otherSetIDs, setID)
+			}
 		}
-		setName, err := set.String(common.BKSetNameField)
-		if err != nil {
-			blog.ErrorJSON("set %s name invalid, error: %s, rid: %s", set, err, rid)
-			ctx.RespAutoError(err)
-			return
-		}
-		setMap[setID] = setName
 	}
 
-	cond = condition.CreateCondition()
-	cond.Field(common.BKModuleIDField).In(moduleIDs)
-	query = &meta.QueryCondition{
-		Fields:    []string{common.BKModuleIDField, common.BKModuleNameField},
-		Condition: cond.ToMapStr(),
-	}
-	modules, err := s.CoreAPI.CoreService().Instance().ReadInstance(ctx.Kit.Ctx, header, common.BKInnerObjIDModule, query)
-	if err != nil {
-		blog.ErrorJSON("get module by condition: %s failed, err: %s, rid: %s", cond.ToMapStr(), err, rid)
-		ctx.RespAutoError(err)
-		return
-	}
-	moduleMap := make(map[int64]string)
-	for _, module := range modules.Data.Info {
-		moduleID, err := module.Int64(common.BKModuleIDField)
+	if len(otherSetIDs) > 0 {
+		setIDs = util.IntArrayUnique(setIDs)
+		setFilter := map[string]interface{}{common.BKSetIDField: map[string]interface{}{common.BKDBIN: otherSetIDs}}
+		otherSetMap, _, err := s.Logic.GetInstIDNameInfo(ctx.Kit, common.BKInnerObjIDSet, setFilter)
 		if err != nil {
-			blog.ErrorJSON("module %s id invalid, error: %s, rid: %s", module, err, rid)
+			blog.ErrorJSON("get set by filter(%s) failed, err: %s, rid: %s", setFilter, err, ctx.Kit.Rid)
 			ctx.RespAutoError(err)
 			return
 		}
-		moduleName, err := module.String(common.BKModuleNameField)
+		for key, value := range otherSetMap {
+			setMap[key] = value
+		}
+	}
+
+	otherModuleIDs := make([]int64, 0)
+	if len(filteredModuleIDs) == 0 {
+		otherModuleIDs = util.IntArrayUnique(moduleIDs)
+	} else {
+		for _, moduleID := range moduleIDs {
+			if _, exists := setMap[moduleID]; !exists {
+				otherModuleIDs = append(otherModuleIDs, moduleID)
+			}
+		}
+	}
+
+	if len(otherModuleIDs) > 0 {
+		moduleFilter := map[string]interface{}{common.BKModuleIDField: map[string]interface{}{common.BKDBIN: otherModuleIDs}}
+		otherModuleMap, _, err := s.Logic.GetInstIDNameInfo(ctx.Kit, common.BKInnerObjIDModule, moduleFilter)
 		if err != nil {
-			blog.ErrorJSON("module %s name invalid, error: %s, rid: %s", module, err, rid)
+			blog.ErrorJSON("get module by filter(%s) failed, err: %s, rid: %s", moduleFilter, err, ctx.Kit.Rid)
 			ctx.RespAutoError(err)
 			return
 		}
-		moduleMap[moduleID] = moduleName
+		for key, value := range otherModuleMap {
+			moduleMap[key] = value
+		}
 	}
 
 	// format the output
@@ -839,7 +859,6 @@ func (s *Service) ListBizHostsTopo(ctx *rest.Contexts) {
 		hostTopos.Info = append(hostTopos.Info, hostTopo)
 	}
 	ctx.RespEntity(hostTopos)
-
 }
 
 func (s *Service) ListHostDetailAndTopology(ctx *rest.Contexts) {

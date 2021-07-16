@@ -23,6 +23,7 @@ import (
 	"configcenter/src/common/http/rest"
 	"configcenter/src/common/mapstr"
 	meta "configcenter/src/common/metadata"
+	parse "configcenter/src/common/paraparse"
 	"configcenter/src/common/util"
 )
 
@@ -182,4 +183,104 @@ func (lgc *Logics) getRawInstAsst(kit *rest.Kit, objID string, IDs []string, que
 	}
 
 	return allInst, rtn.Data.Count, nil
+}
+
+func (lgc *Logics) SearchInstance(kit *rest.Kit, objID string, input *meta.QueryCondition) ([]mapstr.MapStr,
+	errors.CCErrorCoder) {
+
+	instanceRes, err := lgc.CoreAPI.CoreService().Instance().ReadInstance(kit.Ctx, kit.Header, objID, input)
+	if err != nil {
+		blog.ErrorJSON("search %s instance failed, err: %s, input: %s, rid: %s", objID, err, input, kit.Rid)
+		return nil, kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
+	}
+
+	if err := instanceRes.CCError(); err != nil {
+		blog.ErrorJSON("search %s instance failed, err: %s, query: %s, rid: %s", objID, err, input, kit.Rid)
+		return nil, err
+	}
+
+	return instanceRes.Data.Info, nil
+}
+
+// GetInstIDNameInfo get instance ids and id to name map by condition
+func (lgc *Logics) GetInstIDNameInfo(kit *rest.Kit, objID string, cond mapstr.MapStr) (map[int64]string, []int64, error) {
+	idField := meta.GetInstIDFieldByObjID(objID)
+	nameField := meta.GetInstNameFieldName(objID)
+
+	query := &meta.QueryCondition{
+		Fields:    []string{idField, nameField},
+		Condition: cond,
+		Page: meta.BasePage{
+			Limit: common.BKNoLimit,
+		},
+	}
+
+	instances, err := lgc.SearchInstance(kit, objID, query)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	instanceMap := make(map[int64]string)
+	instanceIDs := make([]int64, 0)
+	for _, instance := range instances {
+		instanceID, err := instance.Int64(idField)
+		if err != nil {
+			blog.ErrorJSON("instance %s id is invalid, error: %s, rid: %s", instance, err, kit.Rid)
+			return nil, nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, idField)
+		}
+		instanceIDs = append(instanceIDs, instanceID)
+
+		instanceName, err := instance.String(nameField)
+		if err != nil {
+			blog.ErrorJSON("instance %s name is invalid, error: %s, rid: %s", instance, err, kit.Rid)
+			return nil, nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, nameField)
+		}
+		instanceMap[instanceID] = instanceName
+	}
+
+	return instanceMap, instanceIDs, nil
+}
+
+// GetInstIDs get instance ids by condition items
+func (lgc *Logics) GetInstIDs(kit *rest.Kit, objID string, cond []meta.ConditionItem) ([]int64, errors.CCErrorCoder) {
+	if len(cond) == 0 {
+		return make([]int64, 0), nil
+	}
+
+	condition := make(map[string]interface{})
+	if err := parse.ParseCommonParams(cond, condition); err != nil {
+		blog.ErrorJSON("parse condition item failed, err: %s, cond: %s, rid: %s", err, cond, kit.Rid)
+		return nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, objID+"_cond")
+	}
+
+	idField := meta.GetInstIDFieldByObjID(objID)
+
+	query := &meta.QueryCondition{
+		Fields:    []string{idField},
+		Condition: condition,
+		Page: meta.BasePage{
+			Limit: common.BKNoLimit,
+		},
+	}
+
+	instances, err := lgc.SearchInstance(kit, objID, query)
+	if err != nil {
+		return nil, err
+	}
+
+	instanceIDs := make([]int64, 0)
+	for _, instance := range instances {
+		instanceID, err := instance.Int64(idField)
+		if err != nil {
+			blog.ErrorJSON("instance %s id is invalid, error: %s, rid: %s", instance, err, kit.Rid)
+			return nil, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, idField)
+		}
+
+		if instanceID == 0 {
+			continue
+		}
+
+		instanceIDs = append(instanceIDs, instanceID)
+	}
+	return instanceIDs, nil
 }
