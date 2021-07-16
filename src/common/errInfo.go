@@ -809,7 +809,7 @@ const (
 	CCERrrCoreServiceSubsetUniqueRuleExist = 1113051
 	// CCERrrCoreServiceSupersetUniqueRuleExist 所选字段组合和已有规则重复，请勿创建冗余规则
 	CCERrrCoreServiceSupersetUniqueRuleExist = 1113052
-	CCERrrCoreServiceConcurrent               = 1113053
+	CCERrrCoreServiceConcurrent              = 1113053
 
 	// CCErrCoreServiceResourceDirectoryNotExistErr 资源池目录不存在
 	CCErrCoreServiceResourceDirectoryNotExistErr = 1113033
@@ -821,6 +821,8 @@ const (
 	CCErrCoreServiceCreateDBUniqueIndex = 1113036
 	// CCErrCoreServiceSearchDBUniqueIndex 获取db唯一索引失败
 	CCErrCoreServiceSearchDBUniqueIndex = 1113037
+	// CCErrCoreServiceCreateDBUniqueIndex 创建唯一索引失败,现有数据有重复值
+	CCErrCoreServiceCreateDBUniqueIndexDuplicateValue = 1113039
 
 	// synchronize data core service  11139xx
 	CCErrCoreServiceSyncError = 1113900

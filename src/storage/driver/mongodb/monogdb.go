@@ -148,3 +148,34 @@ func GetDuplicateKey(err error) string {
 
 	return errString[start:end]
 }
+
+// GetDuplicateValue get duplicate Value from error, if the error is not a duplicate error, returns the raw error message
+// mongodb raw error format example:
+// Index build failed: ... E11000 duplicate key error collection: cmdb.cc_ObjectBase_0_pub_...:  dup key:
+// dup key: { field: "xxxx" }
+func GetDuplicateValue(field string, err error) string {
+	if field == "" {
+		return ""
+	}
+	if err == nil {
+		return ""
+	}
+
+	errString := err.Error()
+	if !strings.Contains(errString, "E11000 duplicate") {
+		return errString
+	}
+
+	start := strings.Index(errString, "dup key: ")
+	if start == -1 {
+		return errString
+	}
+	start += len("dup key: { " + field + ": ")
+
+	end := strings.LastIndex(errString, " }")
+	if end == -1 || end < start {
+		return errString
+	}
+
+	return errString[start:end]
+}

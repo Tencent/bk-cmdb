@@ -40,5 +40,6 @@
     "1113051": "a unique check rule for \"%s field\" exists, please make a supplement on the basis of this rule",
     "1113052": "the selected field combination duplicates with existing rules, please do not create redundant rules",
     "1113053": "association constraint mismatch",
+    "1113039": "Failed to create unique index, value [%s] duplicated",
     "":""
 }
