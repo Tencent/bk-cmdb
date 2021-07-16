@@ -33,6 +33,7 @@
   import cmdbProperty from '@/components/model-instance/property'
   import cmdbAuditHistory from '@/components/model-instance/audit-history'
   import cmdbRelation from '@/components/model-instance/relation'
+  import instanceService from '@/service/instance/instance'
   export default {
     components: {
       cmdbProperty,
@@ -74,9 +75,6 @@
     methods: {
       ...mapActions('objectModelFieldGroup', ['searchGroup']),
       ...mapActions('objectModelProperty', ['searchObjectAttribute']),
-      ...mapActions('objectCommonInst', [
-        'searchInstById'
-      ]),
       setBreadcrumbs(inst) {
         this.$store.commit('setTitle', `${this.model.bk_obj_name}【${inst.bk_inst_name}】`)
       },
@@ -97,18 +95,8 @@
           console.error(e)
         }
       },
-      async getInstInfo() {
-        try {
-          const inst = await this.searchInstById({
-            objId: this.objId,
-            instId: this.instId,
-            config: { requestId: `post_searchInstById_${this.instId}`, cancelPrevious: true }
-          })
-
-          return inst
-        } catch (e) {
-          console.error(e)
-        }
+      getInstInfo() {
+        return instanceService.findOne({ bk_obj_id: this.objId, bk_inst_id: this.instId })
       },
       async getProperties() {
         try {

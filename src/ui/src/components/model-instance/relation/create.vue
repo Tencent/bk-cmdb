@@ -82,6 +82,9 @@
   import bus from '@/utils/bus.js'
   import { mapGetters, mapActions } from 'vuex'
   import authMixin from '../mixin-auth'
+  import instanceService from '@/service/instance/instance'
+  import instanceAssociationService from '@/service/instance/association'
+  import queryBuilderOperator from '@/utils/query-builder-operator'
   export default {
     name: 'cmdb-relation-create',
     components: {
@@ -244,12 +247,10 @@
     },
     methods: {
       ...mapActions('objectAssociation', [
-        'searchInstAssociation',
         'createInstAssociation',
         'deleteInstAssociation'
       ]),
       ...mapActions('objectModelProperty', ['searchObjectAttribute']),
-      ...mapActions('objectCommonInst', ['searchInst']),
       ...mapActions('objectBiz', ['searchBusiness']),
       ...mapActions('hostSearch', ['searchHost']),
       getInstanceAuth(row) {
@@ -375,21 +376,20 @@
         ])
         this.getInstance()
       },
-      getExistInstAssociation() {
+      async getExistInstAssociation() {
         const option = this.currentOption
-        const { isSource } = this
-        return this.searchInstAssociation({
-          params: {
-            bk_obj_id: isSource ? this.objId : option.bk_obj_id,
-            condition: {
-              bk_asst_id: option.bk_asst_id,
-              bk_obj_asst_id: option.bk_obj_asst_id,
-              bk_asst_obj_id: isSource ? option.bk_asst_obj_id : this.objId,
-              [`${isSource ? 'bk_inst_id' : 'bk_asst_inst_id'}`]: this.instId
-            }
+        const condition = {
+          bk_asst_id: option.bk_asst_id,
+          bk_obj_asst_id: option.bk_obj_asst_id,
+          bk_asst_obj_id: this.isSource ? option.bk_asst_obj_id : this.objId,
+          [`${this.isSource ? 'bk_inst_id' : 'bk_asst_inst_id'}`]: this.instId
+        }
+        this.existInstAssociation = await instanceAssociationService.findAll({
+          bk_obj_id: this.isSource ? this.objId : option.bk_obj_id,
+          conditions: {
+            condition: 'AND',
+            rules: Object.keys(condition).map(key => ({ field: key, operator: 'equal', value: condition[key] }))
           }
-        }).then((data) => {
-          this.existInstAssociation = data || []
         })
       },
       isAssociated(inst) {
@@ -559,8 +559,8 @@
         })
       },
       getObjInstance(objId, config) {
-        return this.searchInst({
-          objId,
+        return instanceService.find({
+          bk_obj_id: objId,
           params: this.getObjParams(),
           config
         })
@@ -568,17 +568,18 @@
       getObjParams() {
         const params = {
           page: this.page,
-          fields: {},
-          condition: {}
+          fields: [],
         }
         const property = this.getProperty(this.filter.id)
         if (this.filter.value !== '' && property) {
-          const objId = this.currentAsstObj
-          params.condition[objId] = [{
-            field: this.filter.id,
-            operator: this.filter.operator,
-            value: this.filter.value
-          }]
+          params.conditions = {
+            condition: 'AND',
+            rules: [{
+              field: this.filter.id,
+              operator: queryBuilderOperator(this.filter.operator),
+              value: this.filter.value
+            }]
+          }
         }
         return params
       },

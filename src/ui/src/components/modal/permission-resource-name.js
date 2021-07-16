@@ -1,6 +1,7 @@
 import { IAM_VIEWS } from '@/dictionary/iam-auth'
 import CombineRequest from '@/api/combine-request.js'
 import { foreignkey } from '@/filters/formatter.js'
+import instanceService from '@/service/instance/instance'
 
 const requestConfigBase = key => ({
   requestId: `permission_${key}`,
@@ -38,14 +39,12 @@ export const IAM_VIEWS_INST_NAME = {
   async [IAM_VIEWS.INSTANCE](vm, id, relations) {
     const models = vm.$store.getters['objectModelClassify/models']
     const objId = (models.find(item => item.id === Number(relations[0][1])) || {}).bk_obj_id
-
-    const action = 'objectCommonInst/searchInstById'
-    const inst = await vm.$store.dispatch(action, {
-      objId,
-      instId: Number(id),
-      config: { ...requestConfigBase(`${action}${id}`) }
+    const inst = await instanceService.findOne({
+      bk_obj_id: objId,
+      bk_inst_id: Number(id),
+      config: { ...requestConfigBase(`find_instance_${id}`) }
     })
-    return inst.bk_inst_name
+    return inst ? inst.bk_inst_name : id
   },
   [IAM_VIEWS.INSTANCE_MODEL](vm, id) {
     const models = vm.$store.getters['objectModelClassify/models']

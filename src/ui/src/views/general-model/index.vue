@@ -177,6 +177,8 @@
   import Utils from '@/components/filters/utils'
   import throttle from  'lodash.throttle'
   import instanceImportService from '@/service/instance/import'
+  import instanceService from '@/service/instance/instance'
+  import queryBuilderOperator from '@/utils/query-builder-operator'
   export default {
     components: {
       cmdbColumnsConfig,
@@ -358,12 +360,10 @@
       ...mapActions('objectModelProperty', ['searchObjectAttribute']),
       ...mapActions('objectCommonInst', [
         'createInst',
-        'searchInst',
         'updateInst',
         'batchUpdateInst',
         'deleteInst',
-        'batchDeleteInst',
-        'searchInstById'
+        'batchDeleteInst'
       ]),
       setDynamicBreadcrumbs() {
         this.$store.commit('setTitle', this.model.bk_obj_name)
@@ -502,42 +502,36 @@
         this.table.checked = selection.map(row => row.bk_inst_id)
       },
       getInstList(config = { cancelPrevious: true }) {
-        return this.searchInst({
-          objId: this.objId,
+        return instanceService.find({
+          bk_obj_id: this.objId,
           params: this.getSearchParams(),
           config: Object.assign({ requestId: this.request.list }, config)
         })
       },
-      getTableData() {
-        this.getInstList({ cancelPrevious: true, globalPermission: false }).then((data) => {
-          if (data.count && !data.info.length) {
+      async getTableData() {
+        try {
+          const { count, info } = await this.getInstList({ cancelPrevious: true, globalPermission: false })
+          if (count && !info.length) {
             RouterQuery.set({
               page: this.table.pagination.current - 1,
               _t: Date.now()
             })
           }
-          this.table.list = data.info
-          this.table.pagination.count = data.count
-
+          this.table.list = info
+          this.table.pagination.count = count
           this.table.stuff.type = this.filter.value.toString().length ? 'search' : 'default'
-
-          return data
-        })
-          .catch(({ permission }) => {
-            if (permission) {
-              this.table.stuff = {
-                type: 'permission',
-                payload: { permission }
-              }
+        } catch ({ permission }) {
+          if (permission) {
+            this.table.stuff = {
+              type: 'permission',
+              payload: { permission }
             }
-          })
+          }
+        }
       },
       getSearchParams() {
         const params = {
-          condition: {
-            [this.objId]: []
-          },
-          fields: {},
+          fields: [],
           page: {
             start: this.table.pagination.limit * (this.table.pagination.current - 1),
             limit: this.table.pagination.limit,
@@ -547,43 +541,19 @@
         if (!this.filter.value.toString()) {
           return params
         }
-        if (this.filterType === 'time') {
-          const [start, end] = this.filter.value
-          params.time_condition = {
-            oper: 'and',
-            rules: [{
-              field: this.filter.field,
-              start,
-              end
-            }]
-          }
-          return params
-        }
-        if (this.filter.operator === '$range') {
-          const [start, end] = this.filter.value
-          params.condition[this.objId].push({
-            field: this.filter.field,
-            operator: '$gte',
-            value: start
-          }, {
-            field: this.filter.field,
-            operator: '$lte',
-            value: end
-          })
-          return params
-        }
+        params.conditions = { condition: 'AND', rules: [] }
         if (this.filterType === 'objuser') {
           const multiple = this.filter.value.length > 1
-          params.condition[this.objId].push({
+          params.conditions.rules.push({
             field: this.filter.field,
-            operator: multiple ? '$in' : '$regex',
+            operator: queryBuilderOperator(multiple ? '$in' : '$regex'),
             value: multiple ? this.filter.value : this.filter.value.toString()
           })
           return params
         }
-        params.condition[this.objId].push({
+        params.conditions.rules.push({
           field: this.filter.field,
-          operator: this.filter.operator,
+          operator: queryBuilderOperator(this.filter.operator),
           value: this.filter.value
         })
         return params
