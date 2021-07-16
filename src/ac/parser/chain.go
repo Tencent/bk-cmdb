@@ -92,16 +92,7 @@ func (ps *parseStream) Parse() (*meta.AuthAttribute, error) {
 		validateVersion().
 		validateResourceAction().
 		validateUserAndSupplier().
-		cacheRelated().
-		adminRelated().
-		hostRelated().
-		topology().
-		topologyLatest().
-		netCollectorRelated().
-		processRelated().
-		eventRelated().
-		cloudRelated().
-		// finalizer must be at the end of the check chains.
+		matchAuthRoute().
 		finalizer()
 
 	if ps.err != nil {
