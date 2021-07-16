@@ -29,7 +29,7 @@ func (s *Service) SearchIdentifier(ctx *rest.Contexts) {
 		return
 	}
 	ctx.SetReadPreference(common.SecondaryPreferredMode)
-	retVal, err := s.Core.IdentifierOperation().SearchIdentifier(ctx.Kit, ctx.Request.PathParameter("obj_type"), param)
+	retVal, err := s.Logics.IdentifierOperation().SearchIdentifier(ctx.Kit, ctx.Request.PathParameter("obj_type"), param)
 	if err != nil {
 		ctx.RespAutoError(err)
 		return

@@ -37,24 +37,24 @@ const (
 
 // Object object metadata definition
 type Object struct {
-	ID         int64  `field:"id" json:"id" bson:"id"`
-	ObjCls     string `field:"bk_classification_id" json:"bk_classification_id" bson:"bk_classification_id"`
-	ObjIcon    string `field:"bk_obj_icon" json:"bk_obj_icon" bson:"bk_obj_icon"`
-	ObjectID   string `field:"bk_obj_id" json:"bk_obj_id" bson:"bk_obj_id"`
-	ObjectName string `field:"bk_obj_name" json:"bk_obj_name" bson:"bk_obj_name"`
+	ID         int64  `field:"id" json:"id" bson:"id" mapstructure:"id"`
+	ObjCls     string `field:"bk_classification_id" json:"bk_classification_id" bson:"bk_classification_id" mapstructure:"bk_classification_id"`
+	ObjIcon    string `field:"bk_obj_icon" json:"bk_obj_icon" bson:"bk_obj_icon" mapstructure:"bk_obj_icon"`
+	ObjectID   string `field:"bk_obj_id" json:"bk_obj_id" bson:"bk_obj_id" mapstructure:"bk_obj_id"`
+	ObjectName string `field:"bk_obj_name" json:"bk_obj_name" bson:"bk_obj_name" mapstructure:"bk_obj_name"`
 
 	// IsHidden front-end don't display the object if IsHidden is true
-	IsHidden bool `field:"bk_ishidden" json:"bk_ishidden" bson:"bk_ishidden"`
+	IsHidden bool `field:"bk_ishidden" json:"bk_ishidden" bson:"bk_ishidden" mapstructure:"bk_ishidden"`
 
-	IsPre       bool   `field:"ispre" json:"ispre" bson:"ispre"`
-	IsPaused    bool   `field:"bk_ispaused" json:"bk_ispaused" bson:"bk_ispaused"`
-	Position    string `field:"position" json:"position" bson:"position"`
-	OwnerID     string `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
-	Description string `field:"description" json:"description" bson:"description"`
-	Creator     string `field:"creator" json:"creator" bson:"creator"`
-	Modifier    string `field:"modifier" json:"modifier" bson:"modifier"`
-	CreateTime  *Time  `field:"create_time" json:"create_time" bson:"create_time"`
-	LastTime    *Time  `field:"last_time" json:"last_time" bson:"last_time"`
+	IsPre       bool   `field:"ispre" json:"ispre" bson:"ispre" mapstructure:"ispre"`
+	IsPaused    bool   `field:"bk_ispaused" json:"bk_ispaused" bson:"bk_ispaused" mapstructure:"bk_ispaused"`
+	Position    string `field:"position" json:"position" bson:"position" mapstructure:"position"`
+	OwnerID     string `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account" mapstructure:"bk_supplier_account"`
+	Description string `field:"description" json:"description" bson:"description" mapstructure:"description"`
+	Creator     string `field:"creator" json:"creator" bson:"creator" mapstructure:"creator"`
+	Modifier    string `field:"modifier" json:"modifier" bson:"modifier" mapstructure:"modifier"`
+	CreateTime  *Time  `field:"create_time" json:"create_time" bson:"create_time" mapstructure:"create_time"`
+	LastTime    *Time  `field:"last_time" json:"last_time" bson:"last_time" mapstructure:"last_time"`
 }
 
 // GetDefaultInstPropertyName get default inst

@@ -329,3 +329,17 @@ func ValidModelNameField(value interface{}, field string, errProxy errors.Defaul
 	}
 	return nil
 }
+
+// ValidPlaceHolder check the PlaceHolder
+func ValidModelPlaceHolder(value interface{}, field string, errProxy errors.DefaultCCErrorIf) error {
+	strValue, err := ValidMustSetStringField(value, field, errProxy)
+	if err != nil {
+		return err
+	}
+
+	if utf8.RuneCountInString(strValue) > common.AttributePlaceHolderMaxLength {
+		return errProxy.Errorf(common.CCErrCommValExceedMaxFailed,
+			"model_attr_placeholder", common.AttributePlaceHolderMaxLength)
+	}
+	return nil
+}
