@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"configcenter/src/common"
+	"configcenter/src/common/blog"
+	"configcenter/src/common/language"
 	"configcenter/src/common/mapstr"
 
 	"github.com/rentiansheng/xlsx"
@@ -175,24 +177,33 @@ func addExtFields(fields map[string]Property, extFields map[string]string) map[s
 	return fields
 }
 
-func replaceEnName(rowMap mapstr.MapStr, usernameMap map[string]string, propertyList []string) mapstr.MapStr {
+func replaceEnName(rid string, rowMap mapstr.MapStr, usernameMap map[string]string, propertyList []string,
+	defLang language.DefaultCCLanguageIf) (mapstr.MapStr, error) {
 	// propertyList是用户自定义的objuser型的attr名列表
 	for _, property := range propertyList {
 		if rowMap[property] == nil {
 			continue
 		}
+
 		newUserList := []string{}
-		// usernameMap是依照英文名对照中英文名的对照字典
-		for enName, enCnName := range usernameMap {
-			// rowMap包含了即将写入excel的信息,我们要替换其中的objuser类型的attr内容
-			enNameList := strings.Split(rowMap[property].(string), ",")
-			for _, enNameSingle := range enNameList {
-				if enNameSingle == enName {
-					newUserList = append(newUserList, enCnName)
-				}
+		userListString, ok := rowMap[property].(string)
+		if !ok {
+			blog.Errorf("convert variable rowMap[%s] type to string field , rowMap: %v, rowMap type: %T, rid: %s",
+				property, rowMap[property], rowMap[property], rid)
+			return nil, fmt.Errorf("convert variable rowMap[%s] type to string field", property)
+		}
+		enNameList := strings.Split(userListString, ",")
+
+		for _, item := range enNameList {
+			username := usernameMap[item]
+			if username == "" {
+				// return the original user name and remind that the user is nonexistent in '()'
+				username = fmt.Sprintf("%s(%s)", item, defLang.Language("nonexistent_user"))
 			}
+			newUserList = append(newUserList, username)
 		}
 		rowMap[property] = strings.Join(newUserList, ",")
 	}
-	return rowMap
+
+	return rowMap, nil
 }

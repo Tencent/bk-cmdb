@@ -13,5 +13,6 @@
     "web_excel_sheet_not_found": "文件内容不能为空,工作簿内容不存在",
     "web_get_object_field_failure": "查询对象属性失败，错误:%s",
     "web_ext_field_topo":"业务拓扑",
+    "nonexistent_user": "用户不存在",
     "": ""
 }

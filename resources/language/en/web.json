@@ -13,5 +13,6 @@
     "web_excel_sheet_not_found": "The content of the file cannot be empty, the workbook content does not exist",
     "web_get_object_field_failure": "Query fields fail, error:%s",
     "web_ext_field_topo":"business topology",
+    "nonexistent_user": "nonexistent user",
     "": ""
 }

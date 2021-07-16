@@ -66,7 +66,11 @@ func (lgc *Logics) BuildExcelFromData(ctx context.Context, objID string, fields 
 		}
 
 		// 使用中英文用户名重新构造用户列表(用户列表实际为逗号分隔的string型)
-		rowMap = replaceEnName(rowMap, usernameMap, propertyList)
+		rowMap, err = replaceEnName(rid, rowMap, usernameMap, propertyList, ccLang)
+		if err != nil {
+			blog.Errorf("rebuild user list field, err: %s, rid: %s", err, rid)
+			return err
+		}
 
 		primaryKeyArr := setExcelRowDataByIndex(rowMap, sheet, rowIndex, fields)
 
@@ -127,7 +131,11 @@ func (lgc *Logics) BuildHostExcelFromData(ctx context.Context, objID string, fie
 		}
 
 		// 使用中英文用户名重新构造用户列表(用户列表实际为逗号分隔的string型)
-		rowMap = replaceEnName(rowMap, usernameMap, propertyList)
+		rowMap, err = replaceEnName(rid, rowMap, usernameMap, propertyList, ccLang)
+		if err != nil {
+			blog.Errorf("rebuild user list field, err: %s, rid: %s", err, rid)
+			return err
+		}
 
 		primaryKeyArr := setExcelRowDataByIndex(rowMap, sheet, rowIndex, fields)
 		instPrimaryKeyValMap[instID] = primaryKeyArr
