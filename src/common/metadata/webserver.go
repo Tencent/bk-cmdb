@@ -58,6 +58,7 @@ type LoginUserPluginParams struct {
 type LoginUserPluginInerface interface {
 	LoginUser(c *gin.Context, config map[string]string, isMultiOwner bool) (user *LoginUserInfo, loginSucc bool)
 	GetUserList(c *gin.Context, config map[string]string) ([]*LoginSystemUserInfo, error)
+	GetUserListForFront(c *gin.Context, config map[string]string) ([]*LoginSystemUserInfo, error)
 	GetLoginUrl(c *gin.Context, config map[string]string, input *LogoutRequestParams) string
 }
 

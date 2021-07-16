@@ -113,7 +113,7 @@ func (m *publicUser) GetUserList(c *gin.Context) (int, interface{}) {
 	httpStatus := http.StatusOK
 	if nil == m.loginPlg {
 		user := plugins.CurrentPlugin(c, m.config.LoginVersion)
-		userList, err = user.GetUserList(c, m.config.ConfigMap)
+		userList, err = user.GetUserListForFront(c, m.config.ConfigMap)
 	} else {
 		getUserListFunc, err := m.loginPlg.Lookup("GetUserList")
 		if nil != err {
