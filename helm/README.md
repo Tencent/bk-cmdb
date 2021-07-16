@@ -3,74 +3,109 @@
 ## 要求
 - [helm3](https://helm.sh/docs/intro/install/)
 - [Kubernetes](https://kubernetes.io/docs/setup/), 可以本地测试可以用[minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/)
-    
+
 
 ## 准备 bk-cmdb 镜像
 - 方式一：使用docker build构建镜像, 详情请参考[制作docker镜像](./build-image.md)
-- 方式二：从docker hub下载 `docker pull hoffermei/bk-cmdb:v3.6.3`
+- 方式二：从docker hub下载 `docker pull ccr.ccs.tencentyun.com/bk.io/cmdb-standalone:v3.9.28`
 
-## 部署CMDB
+## 制作 chart
+
 ```bash
-(bk-cmdb) ➜  configcenter git:(v3.6.x) ✗ cd helm/bk-cmdb
-(bk-cmdb) ➜  configcenter git:(v3.6.x) ✗ helm install bk-cmdb ./
+创建一个空白的chart
+# helm create bk-cmdb
+
+修改对应的文件
+# vim values.yaml
+
+image:
+  repository: ccr.ccs.tencentyun.com/bk.io/cmdb-standalone  (镜像仓库地址)
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+
+service:
+  type: NodePort   <- 修改
+  port: 8090  (对应cmdb_webserver端口) 
+
+
+# vim Chart.yaml
+appVersion: "v3.9.28"  <- (镜像版本)
+```
+
+
+## 打包使用
+
+```bash
+对格式进行检查
+# helm lint bk-cmdb
+
+打包
+# helm package bk-cmdb
+
+安装chart
+# helm install bk-cmdb-chart bk-cmdb-0.1.0.tgz
 ```
 
 ## 检查服务是否正常启动
-
 ```bash
-(bk-cmdb) ➜  bk-cmdb git:(v3.6.x) ✗ kubectl get pods
-NAME                                              READY   STATUS      RESTARTS   AGE
-bk-cmdb-bk-cmdb-adminserver-5f489d7dd4-ncll5      1/1     Running     0          104s
-bk-cmdb-bk-cmdb-apiserver-7c97d65749-bl2zx        1/1     Running     0          104s
-bk-cmdb-bk-cmdb-bootstrap-hnlzn                   0/1     Completed   3          104s
-bk-cmdb-bk-cmdb-coreservice-5766d5fdf7-c667z      1/1     Running     0          104s
-bk-cmdb-bk-cmdb-datacollection-67dd95b6f9-f2vg7   1/1     Running     0          104s
-bk-cmdb-bk-cmdb-eventserver-5d5dff577c-fp6j2      1/1     Running     0          103s
-bk-cmdb-bk-cmdb-hostserver-6fb6888686-ffcrx       1/1     Running     1          104s
-bk-cmdb-bk-cmdb-operationserver-7f7d4d4cd-5kg7x   1/1     Running     0          104s
-bk-cmdb-bk-cmdb-procserver-74bb69f6d7-rjh8m       1/1     Running     0          104s
-bk-cmdb-bk-cmdb-taskserver-6985477d56-cmdc6       1/1     Running     0          104s
-bk-cmdb-bk-cmdb-tmserver-56dff9bf87-tsl2c         1/1     Running     0          103s
-bk-cmdb-bk-cmdb-toposerver-545fd77759-jgzxk       1/1     Running     0          104s
-bk-cmdb-bk-cmdb-webserver-84c688c468-5zz88        1/1     Running     0          104s
-bk-cmdb-mongodb-589b69cfdc-4dfz5                  1/1     Running     0          104s
-bk-cmdb-redis-master-0                            1/1     Running     0          104s
-bk-cmdb-redis-slave-5657766c47-7gcvs              1/1     Running     0          104s
-bk-cmdb-zookeeper-0                               1/1     Running     0          104s
+# kubectl get pods
+NAME                                     READY   STATUS    RESTARTS   AGE
+bk-cmdb-chart-7c985f78bd-xvkb7           1/1     Running   0          13h
+```
+
+## 进入容器启动服务
+```bash
+进入容器
+# docker exec -it 容器id /bin/bash
+
+[root@bk-cmdb-chart-7c985f78bd-xvkb7 cmdb]# pwd
+/data/cmdb
+
+启动服务
+[root@bk-cmdb-chart-7c985f78bd-xvkb7 cmdb]# ./start.sh
+starting: cmdb_adminserver
+starting: cmdb_apiserver
+starting: cmdb_authserver
+starting: cmdb_cloudserver
+starting: cmdb_coreservice
+starting: cmdb_datacollection
+starting: cmdb_eventserver
+starting: cmdb_hostserver
+starting: cmdb_operationserver
+starting: cmdb_procserver
+starting: cmdb_taskserver
+starting: cmdb_toposerver
+starting: cmdb_webserver
+root       8809      0  0 02:28 ?        00:00:31 ./cmdb_adminserver --addrport=10.244.0.15:60004 --logtostderr=false --log-dir=./logs --v=3 --config=configures/migrate.yaml
+root       8826      0  0 02:28 ?        00:00:35 ./cmdb_apiserver --addrport=10.244.0.15:8080 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root       8874      0  0 02:28 ?        00:00:41 ./cmdb_cloudserver --addrport=10.244.0.15:60013 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false --enable_cryptor=false
+root       8893      0  1 02:28 ?        00:01:02 ./cmdb_coreservice --addrport=10.244.0.15:50009 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181
+root       9123      0  0 02:28 ?        00:00:35 ./cmdb_datacollection --addrport=10.244.0.15:60005 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root       9539      0  1 02:28 ?        00:01:06 ./cmdb_eventserver --addrport=10.244.0.15:60009 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root       9775      0  0 02:28 ?        00:00:34 ./cmdb_hostserver --addrport=10.244.0.15:60001 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root      10073      0  0 02:28 ?        00:00:31 ./cmdb_operationserver --addrport=10.244.0.15:60011 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root      10094      0  0 02:28 ?        00:00:30 ./cmdb_procserver --addrport=10.244.0.15:60003 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root      10116      0  0 02:28 ?        00:00:38 ./cmdb_taskserver --addrport=10.244.0.15:60012 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181
+root      10140      0  0 02:28 ?        00:00:31 ./cmdb_toposerver --addrport=10.244.0.15:60002 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181 --enable-auth=false
+root      10159      0  0 02:28 ?        00:00:26 ./cmdb_webserver --addrport=10.244.0.15:80 --logtostderr=false --log-dir=./logs --v=3 --regdiscv=127.0.0.1:2181
+process count should be: 12 , now: 12
+Not Running: cmdb_authserver
 ```
 
 ## 导出服务并访问CMDB
-
 ```bash
-(bk-cmdb) ➜  bk-cmdb git:(v3.6.x) ✗ kubectl get svc
-NAME                              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
-bk-cmdb-bk-cmdb-adminserver       ClusterIP   10.96.28.239    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-apiserver         ClusterIP   10.96.114.56    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-coreservice       ClusterIP   10.96.162.86    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-datacollection    ClusterIP   10.96.87.252    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-eventserver       ClusterIP   10.96.227.207   <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-hostserver        ClusterIP   10.96.105.219   <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-operationserver   ClusterIP   10.96.35.69     <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-procserver        ClusterIP   10.96.23.104    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-taskserver        ClusterIP   10.96.226.115   <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-tmserver          ClusterIP   10.96.88.208    <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-toposerver        ClusterIP   10.96.189.177   <none>        80/TCP                       5m41s
-bk-cmdb-bk-cmdb-webserver         NodePort    10.96.141.251   <none>        80:32033/TCP                 5m41s
-bk-cmdb-mongodb                   ClusterIP   10.96.248.238   <none>        27017/TCP                    5m41s
-bk-cmdb-redis-master              ClusterIP   10.96.36.166    <none>        6379/TCP                     5m41s
-bk-cmdb-redis-slave               ClusterIP   10.96.134.239   <none>        6379/TCP                     5m41s
-bk-cmdb-zookeeper                 ClusterIP   10.96.149.164   <none>        2181/TCP                     5m41s
-bk-cmdb-zookeeper-headless        ClusterIP   None            <none>        2181/TCP,3888/TCP,2888/TCP   5m41s
-kubernetes                        ClusterIP   10.96.0.1       <none>        443/TCP                      13h
-
-(bk-cmdb) ➜  bk-cmdb git:(v3.6.x) ✗ minikube service bk-cmdb-bk-cmdb-webserver
-|-----------|---------------------------|-------------|-----------------------------|
-| NAMESPACE |           NAME            | TARGET PORT |             URL             |
-|-----------|---------------------------|-------------|-----------------------------|
-| default   | bk-cmdb-bk-cmdb-webserver |             | http://192.168.99.100:32033 |
-|-----------|---------------------------|-------------|-----------------------------|
-🎉  Opening service default/bk-cmdb-bk-cmdb-webserver in default browser...
+# kubectl get svc
+NAME                    TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+bk-cmdb-chart           NodePort    10.109.98.83     <none>        8090:31664/TCP                 13h
 ```
 
 ## 运行效果
 ![k8s 中运行效果](./run-in-k8s.jpg)
+
+
+
+
+
+
