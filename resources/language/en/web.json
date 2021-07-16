@@ -17,5 +17,6 @@
     "both_hostid_exportcond_empty": "excel export condition param bk_host_id and export_condition can't be empty at the same time",
     "host_id_len_err": "the count of hostids in excel export condition param bk_host_id must be 1～%d",
     "export_page_limit_err": "excel export condition param page.limit must be 1～%d",
+    "nonexistent_user": "nonexistent user",
     "": ""
 }

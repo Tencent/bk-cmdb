@@ -18,6 +18,7 @@ import (
 
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
+	"configcenter/src/common/language"
 	"configcenter/src/common/mapstr"
 	"github.com/rentiansheng/xlsx"
 )
@@ -175,7 +176,8 @@ func addExtFields(fields map[string]Property, extFields map[string]string) map[s
 	return fields
 }
 
-func replaceEnName(rid string, rowMap mapstr.MapStr, usernameMap map[string]string, propertyList []string) (mapstr.MapStr, error) {
+func replaceEnName(rid string, rowMap mapstr.MapStr, usernameMap map[string]string, propertyList []string,
+	defLang language.DefaultCCLanguageIf) (mapstr.MapStr, error) {
 	// propertyList是用户自定义的objuser型的attr名列表
 	for _, property := range propertyList {
 		if rowMap[property] == nil {
@@ -189,7 +191,12 @@ func replaceEnName(rid string, rowMap mapstr.MapStr, usernameMap map[string]stri
 		}
 		enNameList := strings.Split(userListString, ",")
 		for _, item := range enNameList {
-			newUserList = append(newUserList, usernameMap[item])
+			username := usernameMap[item]
+			if username == "" {
+				// return the original user name and remind that the user is nonexistent in '()'
+				username = fmt.Sprintf("%s(%s)", item, defLang.Language("nonexistent_user"))
+			}
+			newUserList = append(newUserList, username)
 		}
 		rowMap[property] = strings.Join(newUserList, ",")
 	}

@@ -17,5 +17,6 @@
     "both_hostid_exportcond_empty": "excel导出条件参数bk_host_id和export_condition不能同时为空",
     "host_id_len_err": "excel导出条件参数bk_host_id的主机数量范围是1～%d",
     "export_page_limit_err": "excel导出条件参数page.limit的范围是1～%d",
+    "nonexistent_user": "用户不存在",
     "": ""
 }
