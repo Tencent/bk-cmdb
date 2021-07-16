@@ -21,6 +21,7 @@ import (
 	"configcenter/src/common/backbone"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/rdapi"
+	"configcenter/src/common/webservice/restfulservice"
 	"configcenter/src/storage/dal/redis"
 
 	"github.com/emicklei/go-restful"
@@ -84,6 +85,12 @@ func (s *service) WebServices() []*restful.WebService {
 
 	allWebServices := make([]*restful.WebService, 0)
 	allWebServices = append(allWebServices, ws)
-	allWebServices = append(allWebServices, s.RootWebService())
+
+	// common api
+	commonAPI := new(restful.WebService).Produces(restful.MIME_JSON)
+	commonAPI.Route(commonAPI.GET("/healthz").To(s.Healthz))
+	commonAPI.Route(commonAPI.GET("/version").To(restfulservice.Version))
+	allWebServices = append(allWebServices, commonAPI)
+
 	return allWebServices
 }

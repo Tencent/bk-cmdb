@@ -26,6 +26,7 @@ import (
 	"configcenter/src/common/http/rest"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/util"
+	"configcenter/src/common/webservice/restfulservice"
 	"configcenter/src/scene_server/auth_server/logics"
 	sdkauth "configcenter/src/scene_server/auth_server/sdk/auth"
 	"configcenter/src/scene_server/auth_server/sdk/client"
@@ -163,9 +164,11 @@ func (s *AuthService) WebService() *restful.Container {
 	s.initAuth(authAPI)
 	container.Add(authAPI)
 
-	healthzAPI := new(restful.WebService).Produces(restful.MIME_JSON)
-	healthzAPI.Route(healthzAPI.GET("/healthz").To(s.Healthz))
-	container.Add(healthzAPI)
+	// common api
+	commonAPI := new(restful.WebService).Produces(restful.MIME_JSON)
+	commonAPI.Route(commonAPI.GET("/healthz").To(s.Healthz))
+	commonAPI.Route(commonAPI.GET("/version").To(restfulservice.Version))
+	container.Add(commonAPI)
 
 	return container
 }

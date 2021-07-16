@@ -13,17 +13,15 @@
 package service
 
 import (
-	restful "github.com/emicklei/go-restful"
-
 	"configcenter/src/common"
-	"configcenter/src/common/errors"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/metric"
-	"configcenter/src/common/rdapi"
 	"configcenter/src/common/types"
+
+	"github.com/emicklei/go-restful"
 )
 
-func (s *service) healthz(req *restful.Request, resp *restful.Response) {
+func (s *service) Healthz(req *restful.Request, resp *restful.Response) {
 	meta := metric.HealthMeta{IsHealthy: true}
 
 	// zk health status
@@ -121,17 +119,4 @@ func (s *service) healthz(req *restful.Request, resp *restful.Response) {
 	}
 	answer.SetCommonResponse()
 	resp.WriteJson(answer, "application/json")
-}
-
-func (s *service) RootWebService() *restful.WebService {
-	ws := new(restful.WebService)
-	getErrFun := func() errors.CCErrorIf {
-		return s.engine.CCErr
-	}
-	ws.Filter(rdapi.AllGlobalFilter(getErrFun)).Produces(restful.MIME_JSON)
-
-	ws.Route(ws.GET("/healthz").To(s.healthz))
-	ws.Route(ws.GET("/version").To(s.Version))
-
-	return ws
 }

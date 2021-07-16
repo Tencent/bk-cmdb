@@ -10,19 +10,23 @@
  * limitations under the License.
  */
 
-package service
+package restfulservice
 
 import (
+	"configcenter/src/common"
+	"configcenter/src/common/metric"
 	"configcenter/src/common/version"
 
 	"github.com/emicklei/go-restful"
 )
 
-func (s *service) Version(req *restful.Request, resp *restful.Response) {
-	answer := map[string]interface{}{
-		"version":   version.CCVersion,
-		"time":      version.CCBuildTime,
-		"commit_id": version.CCGitHash,
+// Version provides the service version info
+func Version(req *restful.Request, resp *restful.Response) {
+	answer := metric.VersionInfo{
+		Module:    common.GetIdentification(),
+		Version:   version.CCVersion,
+		BuildTime: version.CCBuildTime,
+		CommitID:  version.CCGitHash,
 	}
 	resp.WriteJson(answer, "application/json")
 }

@@ -21,6 +21,7 @@ import (
 	"configcenter/src/common/language"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/rdapi"
+	"configcenter/src/common/webservice/restfulservice"
 	"configcenter/src/scene_server/topo_server/app/options"
 	"configcenter/src/scene_server/topo_server/core"
 	"configcenter/src/thirdparty/elasticsearch"
@@ -51,10 +52,13 @@ func (s *Service) WebService() *restful.Container {
 	// init service actions
 	s.initService(api)
 
-	healthz := new(restful.WebService).Produces(restful.MIME_JSON)
-	healthz.Route(healthz.GET("/healthz").To(s.Healthz))
 	container := restful.NewContainer().Add(api)
-	container.Add(healthz)
+
+	// common api
+	commonAPI := new(restful.WebService).Produces(restful.MIME_JSON)
+	commonAPI.Route(commonAPI.GET("/healthz").To(s.Healthz))
+	commonAPI.Route(commonAPI.GET("/version").To(restfulservice.Version))
+	container.Add(commonAPI)
 
 	return container
 }

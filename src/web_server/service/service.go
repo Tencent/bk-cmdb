@@ -24,6 +24,7 @@ import (
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/metric"
 	"configcenter/src/common/types"
+	"configcenter/src/common/webservice/ginservice"
 	"configcenter/src/storage/dal/redis"
 	"configcenter/src/web_server/app/options"
 	"configcenter/src/web_server/logics"
@@ -99,7 +100,6 @@ func (s *Service) WebService() *gin.Engine {
 	ws.PUT("/user/current/supplier/:id", s.UpdateSupplier)
 	ws.POST("/biz/search/web", s.SearchBusiness)
 
-	ws.GET("/healthz", s.Healthz)
 	ws.GET("/", s.Index)
 
 	ws.POST("/netdevice/import", s.ImportNetDevice)
@@ -111,6 +111,10 @@ func (s *Service) WebService() *gin.Engine {
 
 	ws.POST("/regular/verify_regular_express", s.VerifyRegularExpress)
 	ws.POST("/regular/verify_regular_content_batch", s.VerifyRegularContentBatch)
+
+  // common api
+	ws.GET("/healthz", s.Healthz)
+	ws.GET("/version", ginservice.Version)
 
 	// if no route, redirect to 404 page
 	ws.NoRoute(func(c *gin.Context) {

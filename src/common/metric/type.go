@@ -102,6 +102,13 @@ type HealthInfo struct {
 	Version    map[string]interface{} `json:"version"`
 }
 
+type VersionInfo struct {
+	Module    string `json:"module"`
+	Version   string `json:"version"`
+	BuildTime string `json:"build_time"`
+	CommitID  string `json:"commit_id"`
+}
+
 type Action struct {
 	Method      string
 	Path        string
