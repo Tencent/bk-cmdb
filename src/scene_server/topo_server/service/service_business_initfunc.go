@@ -122,6 +122,7 @@ func (s *Service) initBusinessAssociation(web *restful.WebService) {
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topomodelmainline", Handler: s.SearchMainLineObjectTopo})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topoinst/biz/{bk_biz_id}", Handler: s.SearchBusinessTopo})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topoinst_with_statistics/biz/{bk_biz_id}", Handler: s.SearchBusinessTopoWithStatistics})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topoinstnode/host_serviceinst_count/{bk_biz_id}", Handler: s.SearchBusinessTopoNodeHostAndServiceInstanceCount})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topoinst/bk_biz_id/{bk_biz_id}/host_apply_rule_related", Handler: s.SearchRuleRelatedTopoNodes})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/topopath/biz/{bk_biz_id}", Handler: s.SearchTopoPath})
 

@@ -532,6 +532,19 @@ var _ = Describe("inst test", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(instIdRes).To(Equal(instId))
 	})
+
+	It("get toponode host and serviceinst count", func() {
+		cond1 := metadata.Condition{ObjID: "set", InstID: instId}
+		conds := make([]metadata.Condition, 0)
+		conds = append(conds, cond1)
+		input := &metadata.SearchBizTopoNodeHostAndServiceInstCountOption{
+			Condition: conds,
+		}
+		rsp, err := instClient.GetTopoNodeHostAndServiceInstCount(context.Background(), header, instId, input)
+		util.RegisterResponse(rsp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rsp.Result).To(Equal(true))
+	})
 })
 
 var _ = Describe("audit test", func() {

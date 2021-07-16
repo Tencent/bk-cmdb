@@ -478,7 +478,8 @@ const (
 	CCErrorSetNameDuplicated       = 1101108
 
 	// CCErrorCheckRegularFailed check regular expression failed
-	CCErrorCheckRegularFailed = 1101109
+	CCErrorCheckRegularFailed   = 1101109
+	CCErrorParamExceedMaxLength = 1101110
 
 	// object controller 1102XXX
 

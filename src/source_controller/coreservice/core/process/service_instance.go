@@ -426,6 +426,8 @@ func (p *processOperation) ListServiceInstanceDetail(kit *rest.Kit, option metad
 	query := mongodb.Client().Table(common.BKTableNameServiceInstance).Find(filter).Start(start).Limit(limit)
 	if len(option.Page.Sort) > 0 {
 		query = query.Sort(option.Page.Sort)
+	} else {
+		query = query.Sort(common.BKFieldID)
 	}
 	if err := query.All(kit.Ctx, &serviceInstances); nil != err {
 		blog.Errorf("ListServiceInstance failed, mongodb failed, table: %s, filter: %+v, err: %+v, rid: %s", common.BKTableNameServiceInstance, filter, err, kit.Rid)

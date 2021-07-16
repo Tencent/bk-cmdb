@@ -419,6 +419,22 @@ type TopoInstRst struct {
 	Child    []*TopoInstRst `json:"child"`
 }
 
+type TopoInstNodeHostAndServiceInstCount struct {
+	ObjID                string `json:"bk_obj_id"`
+	InstID               int64  `json:"bk_inst_id"`
+	HostCount            int64  `json:"host_count"`
+	ServiceInstanceCount int64  `json:"service_instance_count"`
+}
+
+type SearchBizTopoNodeHostAndServiceInstCountOption struct {
+	Condition []Condition `json:"condition"`
+}
+
+type Condition struct {
+	ObjID  string `json:"bk_obj_id"`
+	InstID int64  `json:"bk_inst_id"`
+}
+
 type TopoInstRstVisitor func(tir *TopoInstRst)
 
 func (tir *TopoInstRst) DeepFirstTraverse(visitor TopoInstRstVisitor) {

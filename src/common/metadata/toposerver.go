@@ -140,3 +140,15 @@ type SearchBriefBizTopoResult struct {
 	BaseResp `json:",inline"`
 	Data     []*SetTopo
 }
+
+type GetTopoNodeHostAndServiceInstCountResult struct {
+	BaseResp `json:",inline"`
+	Data     []*TopoNodeCount
+}
+
+type TopoNodeCount struct {
+	ObjID                string `json:"bk_obj_id"`
+	InstID               int64  `json:"bk_inst_id"`
+	HostCount            int64  `json:"host_count"`
+	ServiceInstanceCount int64  `json:"service_instance_count"`
+}

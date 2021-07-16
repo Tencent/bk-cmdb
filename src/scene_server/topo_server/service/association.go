@@ -168,6 +168,41 @@ func (s *Service) searchBusinessTopo(ctx *rest.Contexts,
 	return topoInstRst, nil
 }
 
+// SearchBusinessTopoNodeHostAndServiceInstanceCount calculate how many service instances on each topo instance node amd how many hosts
+func (s *Service) SearchBusinessTopoNodeHostAndServiceInstanceCount(ctx *rest.Contexts) {
+	resp, err := s.searchBusinessTopoNodeHostAndServiceInstancesCount(ctx)
+	if nil != err {
+		ctx.RespAutoError(err)
+		return
+	}
+	ctx.RespEntity(resp)
+}
+
+func (s *Service) searchBusinessTopoNodeHostAndServiceInstancesCount(ctx *rest.Contexts) ([]*metadata.TopoInstNodeHostAndServiceInstCount, error) {
+	id, err := strconv.ParseInt(ctx.Request.PathParameter("bk_biz_id"), 10, 64)
+	if nil != err {
+		blog.Errorf("[api-asst] failed to parse the path params id(%s), error info is %s , rid: %s", ctx.Request.PathParameter("app_id"), err.Error(), ctx.Kit.Rid)
+
+		return nil, err
+	}
+	input := new(metadata.SearchBizTopoNodeHostAndServiceInstCountOption)
+	if err := ctx.DecodeInto(input); err != nil {
+		ctx.RespAutoError(err)
+		return nil, err
+	}
+
+	if len(input.Condition) > common.BKParamMaxLength {
+		return nil, ctx.Kit.CCError.Error(common.CCErrorParamExceedMaxLength)
+	}
+
+	topoInstHostCountRst, err := s.Core.AssociationOperation().SearchTopoNodeHostAndServiceInstCount(ctx.Kit, id, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return topoInstHostCountRst, nil
+}
+
 func SortTopoInst(instData []*metadata.TopoInstRst) {
 	for _, data := range instData {
 		instNameInGBK, _ := ioutil.ReadAll(transform.NewReader(bytes.NewReader([]byte(data.InstName)), simplifiedchinese.GBK.NewEncoder()))
